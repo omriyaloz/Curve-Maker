@@ -17,9 +17,10 @@ CurveWidget::CurveNode::CurveNode(QPointF p) // <<< Use CurveWidget::CurveNode::
     handleOut(p),
     // Use unqualified name here - we are effectively inside CurveWidget scope
     alignment(HandleAlignment::Aligned)
-{
-    // Empty body
-}
+{}
+
+
+
 
 // Constructor
 CurveWidget::CurveWidget(QWidget *parent)
@@ -152,7 +153,7 @@ void CurveWidget::paintEvent(QPaintEvent *event)
     for (int i = 0; i < m_nodes.size() - 1; ++i) {
         const CurveNode& node0 = m_nodes[i];
         const CurveNode& node1 = m_nodes[i+1];
-        QPointF p0_widget = mapToWidget(node0.mainPoint);
+        QPointF p0_widget;
         QPointF p1_widget = mapToWidget(node0.handleOut); // Outgoing handle from start node
         QPointF p2_widget = mapToWidget(node1.handleIn);  // Incoming handle to end node
         QPointF p3_widget = mapToWidget(node1.mainPoint);
@@ -188,76 +189,75 @@ void CurveWidget::paintEvent(QPaintEvent *event)
     }
 }
 
+// --- Modified mousePressEvent ---
 void CurveWidget::mousePressEvent(QMouseEvent *event)
 {
+    SelectionInfo oldSelection = m_selection;
     m_selection = findNearbyPart(event->pos());
     m_dragging = (m_selection.part != SelectedPart::NONE);
 
+    // Emit Signal on Selection Change
+    if (m_selection.nodeIndex != oldSelection.nodeIndex || m_selection.part != oldSelection.part) {
+        if (m_selection.part != SelectedPart::NONE) {
+            // Make sure index is valid before accessing node alignment
+            if(m_selection.nodeIndex >= 0 && m_selection.nodeIndex < m_nodes.size()) {
+                emit selectionChanged(m_selection.nodeIndex, m_nodes[m_selection.nodeIndex].alignment);
+            } else { // Should not happen if findNearbyPart is correct, but safety check
+                emit selectionChanged(-1, HandleAlignment::Free);
+            }
+        } else {
+            emit selectionChanged(-1, HandleAlignment::Free); // Indicate no selection
+        }
+    }
+
+    // --- Handle Left Button Click (Adding/Selecting) ---
     if (event->button() == Qt::LeftButton) {
         if (m_dragging) {
-            // Point selected, ready for drag (no change needed here)
-            //qDebug() << "Selected existing part:" << static_cast<int>(m_selection.part) << "Node:" << m_selection.nodeIndex;
+            // Point selected, ready for drag (no action needed here)
         } else {
-            // --- Add New Node using Curve Splitting ---
+            // Add New Node using Curve Splitting
             ClosestSegmentResult hit = findClosestSegment(event->pos());
-
-            // Add a small tolerance - don't insert if t is practically 0 or 1
             const qreal t_tolerance = 0.001;
-
             if (hit.segmentIndex != -1 && hit.t > t_tolerance && hit.t < (1.0 - t_tolerance)) {
-                // Found a segment to split
-                int i = hit.segmentIndex; // Index of the node *before* the new one
+                int i = hit.segmentIndex;
                 qreal t = hit.t;
-
-                // Get the original points of the segment being split
-                const QPointF p0 = m_nodes[i].mainPoint;
+                const QPointF p0 = m_nodes[i].mainPoint; // Use existing nodes directly
                 const QPointF p1 = m_nodes[i].handleOut;
                 const QPointF p2 = m_nodes[i+1].handleIn;
                 const QPointF p3 = m_nodes[i+1].mainPoint;
 
-                // Perform the subdivision
                 SubdivisionResult split = subdivideBezier(p0, p1, p2, p3, t);
+                CurveNode newNode(split.pointOnCurve); // Constructor sets default alignment
+                newNode.handleIn = split.handle2_Seg1;
+                newNode.handleOut = split.handle1_Seg2;
+                m_nodes[i].handleOut = split.handle1_Seg1;
+                m_nodes[i+1].handleIn = split.handle2_Seg2;
 
-                // Create the new node
-                CurveNode newNode;
-                newNode.mainPoint = split.pointOnCurve;
-                newNode.handleIn = split.handle2_Seg1;  // Handle arriving at new node
-                newNode.handleOut = split.handle1_Seg2; // Handle leaving new node
-
-                // Update the handles of the surrounding nodes
-                m_nodes[i].handleOut = split.handle1_Seg1;   // Update outgoing handle of node i
-                m_nodes[i+1].handleIn = split.handle2_Seg2; // Update incoming handle of node i+1
-
-                // Insert the new node into the vector
                 m_nodes.insert(i + 1, newNode);
-
-                m_samplesDirty = true; // Curve has changed
-                m_selection = {SelectedPart::MAIN_POINT, i + 1}; // Select the newly added node's main point
-                m_dragging = true; // Allow immediate dragging
-                // qDebug() << "Inserted new node at index" << (i + 1) << "on segment" << i << "at t=" << t;
-
-            } else {
-                // Clicked too far from curve, or too close to an existing node
-                // Do nothing, or provide feedback?
-                // qDebug() << "Click too far from curve or too close to existing node.";
+                m_samplesDirty = true;
+                m_selection = {SelectedPart::MAIN_POINT, i + 1}; // Select new node
+                m_dragging = true; // Allow immediate drag
+                update();
+                emit curveChanged();
+                // Emit selection changed for the newly added node
+                emit selectionChanged(m_selection.nodeIndex, newNode.alignment);
             }
-            // --- End Add New Node ---
         }
+        // --- Handle Right Button Click (Deleting) ---
     } else if (event->button() == Qt::RightButton) {
-        // Delete node/handle (no change from previous version needed here)
         if (m_selection.part == SelectedPart::MAIN_POINT &&
             m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1)
         {
-            m_nodes.remove(m_selection.nodeIndex);
-            m_selection.part = SelectedPart::NONE;
+            int deletedIndex = m_selection.nodeIndex;
+            m_nodes.remove(deletedIndex);
+            m_selection = {SelectedPart::NONE, -1}; // Reset selection
             m_dragging = false;
-            // No need to sort after removal if order was correct before
             m_samplesDirty = true;
+            update();
+            emit curveChanged();
+            emit selectionChanged(-1, HandleAlignment::Free); // Emit deselection
         }
     }
-
-    update(); // Trigger repaint
-    emit curveChanged();
 }
 void CurveWidget::mouseMoveEvent(QMouseEvent *event)
 {
@@ -668,73 +668,103 @@ void CurveWidget::resetCurve()
 
 void CurveWidget::keyPressEvent(QKeyEvent *event)
 {
-    // Check if a main point is selected and it's not an endpoint (where alignment doesn't apply)
-    if (m_selection.part == SelectedPart::MAIN_POINT &&
-        m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1)
+    if (m_selection.part != SelectedPart::NONE &&
+        m_selection.nodeIndex >= 0 && m_selection.nodeIndex < m_nodes.size())
     {
-        bool modeChanged = false;
-        CurveNode& node = m_nodes[m_selection.nodeIndex]; // Get reference
-        HandleAlignment originalMode = node.alignment; // Store original mode
-        HandleAlignment newMode = originalMode;       // Initialize new mode
+        CurveNode& node = m_nodes[m_selection.nodeIndex];
+        HandleAlignment originalMode = node.alignment;
+        HandleAlignment newMode;
 
-        // Determine new mode based on key press
         switch (event->key()) {
         case Qt::Key_F: newMode = HandleAlignment::Free; break;
         case Qt::Key_A: newMode = HandleAlignment::Aligned; break;
         case Qt::Key_M: newMode = HandleAlignment::Mirrored; break;
         default:
-            QWidget::keyPressEvent(event); // Pass unhandled keys
+            QWidget::keyPressEvent(event);
             return;
         }
 
-        // Check if mode actually changed
         if (newMode != originalMode) {
-            node.alignment = newMode; // Apply the new mode
-            modeChanged = true;
-            qDebug() << "Node" << m_selection.nodeIndex << "set to" << static_cast<int>(newMode);
+            node.alignment = newMode; // Set the new mode
+            qDebug() << "Node" << m_selection.nodeIndex << "alignment set to" << static_cast<int>(newMode) << "via keypress";
 
-            // --- IMMEDIATE SNAP LOGIC ---
-            // If switched TO Aligned or Mirrored, snap handleIn based on handleOut
-            if (newMode == HandleAlignment::Aligned || newMode == HandleAlignment::Mirrored) {
-                const QPointF& mainPt = node.mainPoint;
-                QPointF* hIn = &node.handleIn;  // Pointer to handleIn
-                QPointF* hOut = &node.handleOut; // Pointer to handleOut
+            // Apply snap using helper function, only affects intermediate nodes
+            applyAlignmentSnap(m_selection.nodeIndex); // Pass the index
 
-                QPointF vecOut = *hOut - mainPt; // Vector from main to handleOut
-                qreal lenOutSq = QPointF::dotProduct(vecOut, vecOut);
-                QPointF newInPos; // Calculated new position for handleIn
+            m_samplesDirty = true;
+            update();
+            emit curveChanged();
+            // Emit selection changed again to update button states
+            emit selectionChanged(m_selection.nodeIndex, newMode);
+        }
+        event->accept();
+    } else {
+        QWidget::keyPressEvent(event);
+    }
+}
 
-                if (lenOutSq < 1e-12) {
-                    // If handleOut is coincident, make handleIn coincident too
-                    newInPos = mainPt;
-                } else {
-                    qreal lenOut = qSqrt(lenOutSq);
-                    QPointF normDirIn = -vecOut / lenOut; // Normalized opposite direction
+// --- Private Helper: applyAlignmentSnap ---
+// Adjusts handles according to Aligned/Mirrored mode for the given node index
+void CurveWidget::applyAlignmentSnap(int nodeIndex)
+{
+    // Snap only if it's an intermediate node
+    if (nodeIndex <= 0 || nodeIndex >= m_nodes.size() - 1) {
+        return; // No snapping for endpoints
+    }
 
-                    if (newMode == HandleAlignment::Aligned) {
-                        // Keep handleIn's original distance
-                        QPointF vecInOld = *hIn - mainPt;
-                        qreal lenInOld = qSqrt(QPointF::dotProduct(vecInOld, vecInOld));
-                        newInPos = mainPt + normDirIn * lenInOld;
-                    } else { // Mirrored
-                        // Use handleOut's distance for handleIn
-                        newInPos = mainPt + normDirIn * lenOut;
-                    }
-                }
-                // Update handleIn and clamp its position
-                hIn->setX(std::max(0.0, std::min(1.0, newInPos.x())));
-                hIn->setY(std::max(0.0, std::min(1.0, newInPos.y())));
+    CurveNode& node = m_nodes[nodeIndex]; // Get reference to the node
+
+    // Snap only if mode requires it
+    if (node.alignment == HandleAlignment::Aligned || node.alignment == HandleAlignment::Mirrored)
+    {
+        // Snap handleIn based on handleOut's current position
+        const QPointF& mainPt = node.mainPoint;
+        QPointF* hIn = &node.handleIn;
+        QPointF* hOut = &node.handleOut;
+
+        QPointF vecOut = *hOut - mainPt; // Vector from main to handleOut
+        qreal lenOutSq = QPointF::dotProduct(vecOut, vecOut);
+        QPointF newInPos; // Calculated new position for handleIn
+
+        if (lenOutSq < 1e-12) { // Use epsilon for float comparison
+            newInPos = mainPt; // If handleOut is coincident, make handleIn coincident too
+        } else {
+            qreal lenOut = qSqrt(lenOutSq);
+            QPointF normDirIn = -vecOut / lenOut; // Normalized opposite direction
+
+            if (node.alignment == HandleAlignment::Aligned) {
+                // Keep handleIn's original distance
+                QPointF vecInOld = *hIn - mainPt;
+                qreal lenInOld = qSqrt(QPointF::dotProduct(vecInOld, vecInOld));
+                newInPos = mainPt + normDirIn * lenInOld;
+            } else { // Mirrored
+                // Use handleOut's distance for handleIn
+                newInPos = mainPt + normDirIn * lenOut;
             }
-            // --- END IMMEDIATE SNAP LOGIC ---
+        }
+        // Update handleIn and clamp its position (using basic 0-1 clamp)
+        hIn->setX(std::max(0.0, std::min(1.0, newInPos.x())));
+        hIn->setY(std::max(0.0, std::min(1.0, newInPos.y())));
+    }
+}
 
-            m_samplesDirty = true; // Curve shape might have changed due to snap
-            update();           // Repaint to show potential snap
-            emit curveChanged(); // Emit signal
-        } // end if(modeChanged)
 
-        event->accept(); // Indicate we handled the key press
+// --- Public Slot Implementation: setNodeAlignment ---
+void CurveWidget::setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode) {
+    // Check if index is valid and mode is actually changing
+    if (nodeIndex >= 0 && nodeIndex < m_nodes.size() && m_nodes[nodeIndex].alignment != mode)
+    {
+        CurveNode& node = m_nodes[nodeIndex];
+        node.alignment = mode; // Set the new mode
+        qDebug() << "Node" << nodeIndex << "alignment set to" << static_cast<int>(mode) << "via slot";
 
-    } else { // If no valid main point selected, or it's an endpoint
-        QWidget::keyPressEvent(event); // Pass key press to base class
+        // Apply immediate snap logic using the helper function
+        applyAlignmentSnap(nodeIndex); // Pass the index
+
+        m_samplesDirty = true;
+        update();
+        emit curveChanged();
+        // Emit selection changed again so button states in MainWindow update
+        emit selectionChanged(nodeIndex, mode);
     }
 }

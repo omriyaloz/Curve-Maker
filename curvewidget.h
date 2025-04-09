@@ -45,18 +45,20 @@ public:
         CurveNode(QPointF p = QPointF(0,0));
     };
 
-
-    // Optional: Get/Set alignment for a node externally?
-        // HandleAlignment getNodeAlignment(int index) const;
-        // void setNodeAlignment(int index, HandleAlignment mode);
-
     explicit CurveWidget(QWidget *parent = nullptr);
     QVector<CurveNode> getNodes() const;
     qreal sampleCurve(qreal x) const;
     void resetCurve();
 
+    
+public slots:
+    void setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode);
+
+
 signals:
     void curveChanged(); // Signal emitted when the curve data is modified
+    // Emits node index (-1 if none) and its current alignment when selection changes
+    void selectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
 
 protected:
     // --- Event handlers ---
@@ -72,6 +74,7 @@ private:
     QPointF mapToWidget(const QPointF& logicalPoint) const;
     QPointF mapFromWidget(const QPoint& widgetPoint) const;
 
+
     ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
 
     // Find which part (main point, handle) is near the click
@@ -84,8 +87,12 @@ private:
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
 
     void sortNodes(); // Ensure nodes are sorted by mainPoint.x()
+    void updateCurveSamples() const;
+
+    void applyAlignmentSnap(int nodeIndex);
 
     // --- Member variables ---
+private:
     QVector<CurveNode> m_nodes; // Stores the curve nodes and handles
 
     // Selection state
@@ -98,7 +105,7 @@ private:
     // Cache for approximated curve points (for sampleCurve)
     mutable QVector<QPointF> m_curveSamples;
     mutable bool m_samplesDirty = true; // Flag to recalculate samples when curve changes
-    void updateCurveSamples() const; // Recalculate the lookup table
+     // Recalculate the lookup table
     const int m_numSamples = 256; // Number of samples for approximation LUT
 
 };

@@ -10,11 +10,23 @@
     <height>593</height>
    </rect>
   </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
   <property name="windowTitle">
    <string>CurveMaker 1.0</string>
   </property>
   <property name="styleSheet">
    <string notr="true"/>
+  </property>
+  <property name="iconSize">
+   <size>
+    <width>24</width>
+    <height>24</height>
+   </size>
   </property>
   <widget class="QWidget" name="centralwidget">
    <property name="styleSheet">
@@ -64,27 +76,8 @@
           <property name="frameShadow">
            <enum>QFrame::Shadow::Raised</enum>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout">
-           <item>
-            <widget class="QLabel" name="lutPreviewLabelText_3">
-             <property name="font">
-              <font>
-               <family>DejaVu Sans</family>
-               <pointsize>24</pointsize>
-              </font>
-             </property>
-             <property name="layoutDirection">
-              <enum>Qt::LayoutDirection::LeftToRight</enum>
-             </property>
-             <property name="text">
-              <string>LUT Preview</string>
-             </property>
-             <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignCenter</set>
-             </property>
-            </widget>
-           </item>
-           <item>
+          <layout class="QGridLayout" name="gridLayout">
+           <item row="2" column="0" colspan="2">
             <widget class="QLabel" name="lutPreviewLabel_3">
              <property name="minimumSize">
               <size>
@@ -109,7 +102,7 @@
              </property>
             </widget>
            </item>
-           <item>
+           <item row="3" column="1">
             <spacer name="verticalSpacer">
              <property name="orientation">
               <enum>Qt::Orientation::Vertical</enum>
@@ -122,7 +115,122 @@
              </property>
             </spacer>
            </item>
-           <item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="lutPreviewLabelText_3">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="font">
+              <font>
+               <family>DejaVu Sans</family>
+               <pointsize>24</pointsize>
+              </font>
+             </property>
+             <property name="layoutDirection">
+              <enum>Qt::LayoutDirection::LeftToRight</enum>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
+             <property name="text">
+              <string>LUT Preview</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <layout class="QGridLayout" name="gridLayout_2">
+             <item row="1" column="0">
+              <widget class="QPushButton" name="freeBtn">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
+               <property name="text">
+                <string>Free</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="0">
+              <widget class="QPushButton" name="mirroredBtn">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
+               <property name="text">
+                <string>Mirrored</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="0">
+              <widget class="QLabel" name="handleTypeLbl">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="font">
+                <font>
+                 <family>Calibri</family>
+                 <pointsize>13</pointsize>
+                 <bold>false</bold>
+                </font>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
+               <property name="text">
+                <string>Handle Type</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QPushButton" name="alignedBtn">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
+               <property name="text">
+                <string>Aligned</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="4" column="1">
             <widget class="QPushButton" name="resetButton">
              <property name="maximumSize">
               <size>
@@ -132,7 +240,7 @@
              </property>
              <property name="styleSheet">
               <string notr="true">
-color: rgb(255, 255, 255);</string>
+color: rgb(186, 186, 186);</string>
              </property>
              <property name="text">
               <string>Reset curve</string>
@@ -172,6 +280,9 @@ color: rgb(255, 255, 255);</string>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="styleSheet">
+         <string notr="true">background-color: rgb(61, 61, 61);</string>
+        </property>
         <property name="frameShape">
          <enum>QFrame::Shape::StyledPanel</enum>
         </property>
@@ -191,6 +302,9 @@ color: rgb(255, 255, 255);</string>
              </property>
              <property name="layoutDirection">
               <enum>Qt::LayoutDirection::LeftToRight</enum>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
              </property>
              <property name="text">
               <string>LUT Preview</string>
@@ -230,6 +344,9 @@ color: rgb(255, 255, 255);</string>
             <layout class="QHBoxLayout" name="horizontalLayout_2">
              <item>
               <widget class="QLabel" name="exportPathLabel">
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
                <property name="text">
                 <string>Export Path</string>
                </property>
@@ -237,6 +354,9 @@ color: rgb(255, 255, 255);</string>
              </item>
              <item>
               <widget class="QLineEdit" name="filePathLineEdit">
+               <property name="styleSheet">
+                <string notr="true">color: rgb(220, 220, 220);</string>
+               </property>
                <property name="text">
                 <string>Click Browse...</string>
                </property>
@@ -246,6 +366,9 @@ color: rgb(255, 255, 255);</string>
            </item>
            <item>
             <widget class="QPushButton" name="browseButton">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
              <property name="text">
               <string>Browse...</string>
              </property>
@@ -257,18 +380,28 @@ color: rgb(255, 255, 255);</string>
           <layout class="QHBoxLayout" name="horizontalLayout">
            <item>
             <widget class="QLabel" name="lutSizeLabelText">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
              <property name="text">
               <string>LUT Size (width)</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QComboBox" name="lutSizeComboBox"/>
+            <widget class="QComboBox" name="lutSizeComboBox">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
+            </widget>
            </item>
           </layout>
          </item>
          <item>
           <widget class="QPushButton" name="exportButton">
+           <property name="styleSheet">
+            <string notr="true">color: rgb(220, 220, 220);</string>
+           </property>
            <property name="text">
             <string>Export LUT</string>
            </property>

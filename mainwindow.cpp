@@ -10,12 +10,15 @@
 #include <QStandardPaths> // To find standard locations like Desktop
 #include <QDir>           // For path manipulation (optional but good practice)
 #include <QFileInfo>      // For robust path joining (optional)
+#include <QButtonGroup>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow) // Create the UI instance
+    , m_selectedNodeIndex(-1)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
+
 
 
     // --- Set Default Export Path ---
@@ -37,6 +40,15 @@ MainWindow::MainWindow(QWidget *parent)
     }
     ui->filePathLineEdit->setText(defaultFullPath);
 
+    // // --- Optional: Set up Button Group ---
+    // m_alignmentGroup = new QButtonGroup(this);
+    // m_alignmentGroup->addButton(ui->freeBtn);
+    // m_alignmentGroup->addButton(ui->alignedBtn);
+    // m_alignmentGroup->addButton(ui->mirroredBtn);
+    // m_alignmentGroup->setExclusive(true); // Only one can be checked
+    // //------------------------------------
+
+
     // --- Populate LUT Size ComboBox ---
     QList<int> lutSizes = {32, 64, 128, 256, 512}; // Add/remove sizes as needed
     for (int size : lutSizes) {
@@ -47,15 +59,21 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- Connect Signals to Slots ---
 
-    // Auto-connections work for on_<objectName>_<signalName> slots
 
-    // Manually connect the curveChanged signal from our custom widget
-    // to the updateLUTPreview slot in this window.
     connect(ui->curveWidget, &CurveWidget::curveChanged,
             this, &MainWindow::updateLUTPreview);
 
+    connect(ui->curveWidget, &CurveWidget::selectionChanged,
+            this, &MainWindow::onCurveSelectionChanged);
 
     updateLUTPreview(); // Show initial preview
+
+    // --- Initial Button State ---
+    // Disable buttons initially as nothing is selected
+    ui->freeBtn->setEnabled(false);
+    ui->alignedBtn->setEnabled(false);
+    ui->mirroredBtn->setEnabled(false);
+    // --------------------------
 
 }
 
@@ -64,7 +82,61 @@ MainWindow::~MainWindow()
     delete ui; // Clean up the UI
 }
 
+
+
 // --- Slot Implementations ---
+
+void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment) {
+    m_selectedNodeIndex = nodeIndex; // Store the selected index
+
+    // Determine if an intermediate node is selected (where alignment matters most)
+    // Need to ask curveWidget for node count if it changed
+    int nodeCount = ui->curveWidget ? ui->curveWidget->getNodes().size() : 0;
+    bool intermediateNodeSelected = (nodeIndex > 0 && nodeIndex < nodeCount - 1);
+
+    // Enable/disable buttons based on selection
+    // Only enable if an intermediate node is selected
+    ui->freeBtn->setEnabled(intermediateNodeSelected);
+    ui->alignedBtn->setEnabled(intermediateNodeSelected);
+    ui->mirroredBtn->setEnabled(intermediateNodeSelected);
+
+    // Update checked state only if enabled
+    if (intermediateNodeSelected) {
+        ui->freeBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Free);
+        ui->alignedBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Aligned);
+        ui->mirroredBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Mirrored);
+    } else {
+        // Uncheck all if no intermediate node selected
+        // (If using QButtonGroup, just disabling might be enough, but explicit uncheck is safer)
+        ui->freeBtn->setChecked(false);
+        ui->alignedBtn->setChecked(false);
+        ui->mirroredBtn->setChecked(false);
+    }
+    // Alternative if using QButtonGroup:
+    // m_alignmentGroup->blockSignals(true); // Prevent button signals while setting state
+    // if(intermediateNodeSelected) { ... set checked ... }
+    // else { m_alignmentGroup->setExclusive(false); ui->freeBtn->setChecked(false); ... ; m_alignmentGroup->setExclusive(true); }
+    // m_alignmentGroup->blockSignals(false);
+}
+
+// Slots for button clicks - call the public slot on curveWidget
+void MainWindow::on_freeBtn_clicked() {
+    if (m_selectedNodeIndex != -1) { // Check if a node is selected
+        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Free);
+    }
+}
+
+void MainWindow::on_alignedBtn_clicked() {
+    if (m_selectedNodeIndex != -1) {
+        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Aligned);
+    }
+}
+
+void MainWindow::on_mirroredBtn_clicked() {
+    if (m_selectedNodeIndex != -1) {
+        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Mirrored);
+    }
+}
 
 void MainWindow::on_browseButton_clicked()
 {

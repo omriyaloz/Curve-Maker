@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QImage> // For LUT generation/preview
+#include "curvewidget.h"
 
 // Forward declaration is sufficient here if ui file includes curvewidget.h
 // Or include the header directly if needed
@@ -25,8 +26,14 @@ private slots: // Declare the functions that will handle UI events
     void updateLUTPreview();
     void on_resetButton_clicked();
 
+    void on_freeBtn_clicked();
+    void on_alignedBtn_clicked();
+    void on_mirroredBtn_clicked();
+    void onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
+
 private:
     Ui::MainWindow *ui; // Pointer to the UI elements defined in mainwindow.ui
     QImage generateLUTImage(int size); // Helper function
+    int m_selectedNodeIndex = -1;
 };
 #endif // MAINWINDOW_H
