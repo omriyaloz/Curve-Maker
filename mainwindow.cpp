@@ -7,6 +7,7 @@
 #include <QPixmap>        // For displaying preview
 #include <QDebug>         // For debug output
 
+
 #include <QStandardPaths> // To find standard locations like Desktop
 #include <QDir>           // For path manipulation (optional but good practice)
 #include <QFileInfo>      // For robust path joining (optional)
@@ -19,7 +20,13 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
 
-
+    // --- Populate Bit Depth ComboBox ---
+    // Add items: Display Text, UserData (stores the QImage::Format value)
+    ui->bitDepthComboBox->addItem("8-bit Grayscale", QVariant::fromValue(QImage::Format_Grayscale8));
+    ui->bitDepthComboBox->addItem("16-bit Grayscale", QVariant::fromValue(QImage::Format_Grayscale16));
+    // Set 16-bit as the default selection
+    ui->bitDepthComboBox->setCurrentIndex(1);
+    // ------------------------------------
 
     // --- Set Default Export Path ---
     QString desktopPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
@@ -112,11 +119,6 @@ void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlign
         ui->alignedBtn->setChecked(false);
         ui->mirroredBtn->setChecked(false);
     }
-    // Alternative if using QButtonGroup:
-    // m_alignmentGroup->blockSignals(true); // Prevent button signals while setting state
-    // if(intermediateNodeSelected) { ... set checked ... }
-    // else { m_alignmentGroup->setExclusive(false); ui->freeBtn->setChecked(false); ... ; m_alignmentGroup->setExclusive(true); }
-    // m_alignmentGroup->blockSignals(false);
 }
 
 // Slots for button clicks - call the public slot on curveWidget
@@ -166,7 +168,7 @@ void MainWindow::updateLUTPreview()
     // Use the actual spinbox value for correctness, though scaling helps
     int previewSize = ui->lutSizeComboBox->currentData().toInt(); // Or fixed like 256
     if (previewSize < 2) previewSize = 2;
-    QImage lutImage = generateLUTImage(previewSize);
+    QImage lutImage = generateLUTImage(previewSize, QImage::Format_Grayscale8);
 
     if (!lutImage.isNull()) {
         // Create a pixmap and scale it to fit the label's width, keeping aspect ratio (sort of, it's 1 pixel high)
@@ -189,7 +191,8 @@ void MainWindow::on_exportButton_clicked()
     QString filePath = ui->filePathLineEdit->text();
     //int lutSize = ui->lutSizeSpinBox->value();
     int lutSize = ui->lutSizeComboBox->currentData().toInt();
-
+    // *** Get selected format ***
+    QImage::Format selectedFormat = ui->bitDepthComboBox->currentData().value<QImage::Format>();
 
     // 2. Validate Parameters
     if (filePath.isEmpty()) {
@@ -202,7 +205,7 @@ void MainWindow::on_exportButton_clicked()
     }
 
     // 3. Generate LUT Image
-    QImage lutImage = generateLUTImage(lutSize);
+    QImage lutImage = generateLUTImage(lutSize, selectedFormat);
     if (lutImage.isNull()) {
         QMessageBox::critical(this, tr("Export Error"), tr("Failed to generate LUT data."));
         return;
@@ -218,33 +221,45 @@ void MainWindow::on_exportButton_clicked()
 
 // --- Helper Function ---
 
-QImage MainWindow::generateLUTImage(int size)
+// Modify the helper function signature and implementation
+QImage MainWindow::generateLUTImage(int size, QImage::Format format) // Added format parameter
 {
-    if (size < 2 || !ui->curveWidget) { // Basic check
-        return QImage(); // Return null image
+    if (size < 2 || !ui->curveWidget) {
+        return QImage(); // Return null image on error
     }
-
-    // Create a 1D Grayscale image
-    QImage image(size, 1, QImage::Format_Grayscale8);
-    if (image.isNull()) {
-        qWarning() << "Failed to create QImage for LUT.";
+    // Check if format is supported
+    if (format != QImage::Format_Grayscale8 && format != QImage::Format_Grayscale16) {
+        qWarning() << "Unsupported format requested for LUT generation:" << format;
         return QImage();
     }
 
-    uchar *line = image.scanLine(0); // Get pointer to the single row of pixel data
+    // Create image with the specified format
+    QImage image(size, 1, format);
+    if (image.isNull()) {
+        qWarning() << "Failed to create QImage for LUT with format:" << format;
+        return QImage();
+    }
 
-    for (int i = 0; i < size; ++i) {
-        // Normalize x coordinate to 0.0 - 1.0
-        qreal x = static_cast<qreal>(i) / (size - 1.0);
-
-        // Sample the curve using the function from CurveWidget
-        qreal y = ui->curveWidget->sampleCurve(x); // Access the promoted widget via ui pointer
-
-        // Clamp result just in case sampleCurve goes slightly out of bounds
-        y = std::max(0.0, std::min(1.0, y));
-
-        // Convert normalized y (0.0 - 1.0) to grayscale byte (0 - 255)
-        line[i] = static_cast<uchar>(std::round(y * 255.0));
+    // --- Fill pixel data based on format ---
+    if (format == QImage::Format_Grayscale8) {
+        uchar *line = image.scanLine(0); // Pointer to 8-bit data
+        for (int i = 0; i < size; ++i) {
+            qreal x = static_cast<qreal>(i) / (size - 1.0);
+            qreal y = ui->curveWidget->sampleCurve(x);
+            y = std::max(0.0, std::min(1.0, y)); // Clamp 0-1
+            // Convert 0.0-1.0 to 0-255
+            line[i] = static_cast<uchar>(std::round(y * 255.0));
+        }
+    } else { // Must be QImage::Format_Grayscale16
+        // scanLine still returns uchar*, but points to 16-bit (quint16) data
+        quint16 *line = reinterpret_cast<quint16*>(image.scanLine(0));
+        for (int i = 0; i < size; ++i) {
+            qreal x = static_cast<qreal>(i) / (size - 1.0);
+            qreal y = ui->curveWidget->sampleCurve(x);
+            y = std::max(0.0, std::min(1.0, y)); // Clamp 0-1
+            // Convert 0.0-1.0 to 0-65535
+            line[i] = static_cast<quint16>(std::round(y * 65535.0));
+        }
     }
 
     return image;

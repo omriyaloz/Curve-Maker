@@ -36,7 +36,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tab_1">
        <attribute name="title">
@@ -390,6 +390,27 @@ color: rgb(186, 186, 186);</string>
            </item>
            <item>
             <widget class="QComboBox" name="lutSizeComboBox">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayout_3">
+           <item>
+            <widget class="QLabel" name="bitDepthLabel">
+             <property name="styleSheet">
+              <string notr="true">color: rgb(220, 220, 220);</string>
+             </property>
+             <property name="text">
+              <string>Bit Depth</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="bitDepthComboBox">
              <property name="styleSheet">
               <string notr="true">color: rgb(220, 220, 220);</string>
              </property>

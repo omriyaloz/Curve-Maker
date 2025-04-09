@@ -4,9 +4,9 @@
 #include <QMainWindow>
 #include <QImage> // For LUT generation/preview
 #include "curvewidget.h"
+//#include <QButtonGroup>
 
-// Forward declaration is sufficient here if ui file includes curvewidget.h
-// Or include the header directly if needed
+
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; } // Forward declaration of the UI class
@@ -33,7 +33,8 @@ private slots: // Declare the functions that will handle UI events
 
 private:
     Ui::MainWindow *ui; // Pointer to the UI elements defined in mainwindow.ui
-    QImage generateLUTImage(int size); // Helper function
+    QImage generateLUTImage(int size, QImage::Format format); // Helper function
     int m_selectedNodeIndex = -1;
+    //QButtonGroup *m_alignmentGroup;
 };
 #endif // MAINWINDOW_H
