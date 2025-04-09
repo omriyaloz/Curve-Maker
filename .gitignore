@@ -1,1 +1,33 @@
 build
+# Qt Creator/User specific files
+*.user
+*.user.*
+
+# Build directories (adjust pattern if needed)
+build-*/
+debug/
+release/
+
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+YourProjectName # Add your specific executable name(s) if they don't have extensions
+
+# Other generated files
+Makefile*
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+ui_*.h
+moc_*.cpp
+qrc_*.cpp
+
+# Add other ignores as needed...
