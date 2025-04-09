@@ -7,8 +7,19 @@
 #include <algorithm>       // For std::sort, std::max, std::min
 #include <cmath>           // For std::max, std::min, std::pow
 #include <limits> // Required for std::numeric_limits
+#include <QKeyEvent>
+#include <QtMath>
 
 
+CurveWidget::CurveNode::CurveNode(QPointF p) // <<< Use CurveWidget::CurveNode::
+    : mainPoint(p),
+    handleIn(p),
+    handleOut(p),
+    // Use unqualified name here - we are effectively inside CurveWidget scope
+    alignment(HandleAlignment::Aligned)
+{
+    // Empty body
+}
 
 // Constructor
 CurveWidget::CurveWidget(QWidget *parent)
@@ -36,6 +47,8 @@ CurveWidget::CurveWidget(QWidget *parent)
     QPalette pal = palette();
     pal.setColor(QPalette::Window, Qt::darkGray);
     setPalette(pal);
+
+    setFocusPolicy(Qt::ClickFocus);
 }
 
 // --- Public Accessors ---
@@ -70,7 +83,7 @@ SubdivisionResult subdivideBezier(const QPointF& p0, const QPointF& p1, const QP
     return result;
 }
 
-QVector<CurveNode> CurveWidget::getNodes() const {
+QVector<CurveWidget::CurveNode> CurveWidget::getNodes() const {
     return m_nodes; // Return a copy
 }
 
@@ -251,7 +264,11 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
     if (!m_dragging || m_selection.part == SelectedPart::NONE) return;
 
     QPointF logicalPos = mapFromWidget(event->pos());
-    QPointF *pointToMove = nullptr; // Pointer to the QPointF we are actually modifying
+    CurveNode& node = m_nodes[m_selection.nodeIndex];
+    QPointF* pointToMove = nullptr;
+    QPointF* oppositeHandle = nullptr;
+    SelectedPart movedPart = m_selection.part;
+
 
     // Clamp position differently based on what's selected
     qreal newX = logicalPos.x();
@@ -261,40 +278,40 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
     newY = std::max(0.0, std::min(1.0, newY));
 
     // Get pointer to the point being moved
-    CurveNode& node = m_nodes[m_selection.nodeIndex];
-    switch(m_selection.part) {
+    // Determine pointToMove and oppositeHandle (same as before)
+    switch(movedPart) {
+    // ... (cases for MAIN_POINT, HANDLE_IN, HANDLE_OUT setting pointToMove and oppositeHandle) ...
     case SelectedPart::MAIN_POINT:
         pointToMove = &node.mainPoint;
-        // Apply X constraints for main points
-        {
+        { /* ... X clamping for main point ... */
             const qreal epsilon = 1e-6;
-            if (m_selection.nodeIndex == 0) {
-                newX = 0.0;
-            } else if (m_selection.nodeIndex == m_nodes.size() - 1) {
-                newX = 1.0;
-            } else {
+            if (m_selection.nodeIndex == 0) newX = 0.0;
+            else if (m_selection.nodeIndex == m_nodes.size() - 1) newX = 1.0;
+            else {
                 qreal minX = m_nodes[m_selection.nodeIndex - 1].mainPoint.x() + epsilon;
                 qreal maxX = m_nodes[m_selection.nodeIndex + 1].mainPoint.x() - epsilon;
                 if (minX > maxX) minX = maxX = (minX + maxX) / 2.0;
                 newX = std::max(minX, std::min(maxX, newX));
             }
-            newX = std::max(0.0, std::min(1.0, newX)); // Final 0-1 clamp
+            newX = std::max(0.0, std::min(1.0, newX));
         }
         break;
     case SelectedPart::HANDLE_IN:
+        if (m_selection.nodeIndex == 0) return;
         pointToMove = &node.handleIn;
-        // Optional: Add constraints for handle X relative to main points?
-        // Example: newX = std::max(m_nodes[m_selection.nodeIndex-1].mainPoint.x(), std::min(node.mainPoint.x(), newX));
-        newX = std::max(0.0, std::min(1.0, newX)); // Basic 0-1 clamp for now
+        if (m_selection.nodeIndex < m_nodes.size() - 1) oppositeHandle = &node.handleOut;
+        newX = std::max(0.0, std::min(1.0, newX));
         break;
     case SelectedPart::HANDLE_OUT:
+        if (m_selection.nodeIndex == m_nodes.size() - 1) return;
         pointToMove = &node.handleOut;
-        // Optional: Add constraints for handle X relative to main points?
-        // Example: newX = std::max(node.mainPoint.x(), std::min(m_nodes[m_selection.nodeIndex+1].mainPoint.x(), newX));
-        newX = std::max(0.0, std::min(1.0, newX)); // Basic 0-1 clamp for now
+        if (m_selection.nodeIndex > 0) oppositeHandle = &node.handleIn;
+        newX = std::max(0.0, std::min(1.0, newX));
         break;
-    case SelectedPart::NONE: return; // Should not happen if m_dragging is true
+    case SelectedPart::NONE: return;
     }
+
+
 
     // --- Actually move the point ---
     QPointF oldPos = *pointToMove;
@@ -316,9 +333,42 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
         node.handleOut.setX(std::max(0.0, std::min(1.0, node.handleOut.x())));// Simple clamp for now
 
     }
-    // TODO: Implement other constraints like C1/C2 handle alignment here
-    // e.g., if moving handleIn, calculate position for handleOut based on alignment mode.
 
+    // ***vvv START OF UPDATED CONSTRAINT LOGIC vvv***
+    else if (oppositeHandle != nullptr && node.alignment != HandleAlignment::Free) {
+        // Apply ALIGNED or MIRRORED constraints when moving a handle
+        const QPointF& mainPt = node.mainPoint;
+        QPointF vecMoved = *pointToMove - mainPt; // Vector from main to moved handle's NEW position
+
+        qreal lenMovedSq = QPointF::dotProduct(vecMoved, vecMoved);
+        QPointF newOppositePos; // Calculated new position for the opposite handle
+
+        // Check if the moved handle is coincident with the main point
+        if (lenMovedSq < 1e-12) // Use squared epsilon for comparison
+        {
+            // If coincident, make the opposite handle coincident too
+            newOppositePos = mainPt;
+        } else {
+            // Calculate based on mode if moved handle is not coincident
+            qreal lenMoved = qSqrt(lenMovedSq);
+            QPointF normDirOpposite = -vecMoved / lenMoved; // Normalized vector in opposite direction
+
+            if (node.alignment == HandleAlignment::Aligned) {
+                // Keep opposite handle's ORIGINAL distance from main point
+                QPointF vecOppositeOld = *oppositeHandle - mainPt;
+                qreal lenOppositeOld = qSqrt(QPointF::dotProduct(vecOppositeOld, vecOppositeOld));
+                newOppositePos = mainPt + normDirOpposite * lenOppositeOld;
+            } else { // Mirrored
+                // Use moved handle's NEW distance for the opposite handle
+                newOppositePos = mainPt + normDirOpposite * lenMoved;
+            }
+        }
+
+        // Update the opposite handle and clamp its position (using basic 0-1 clamp)
+        oppositeHandle->setX(std::max(0.0, std::min(1.0, newOppositePos.x())));
+        oppositeHandle->setY(std::max(0.0, std::min(1.0, newOppositePos.y())));
+
+    } // ***^^^ END OF UPDATED CONSTRAINT LOGIC ^^^***
 
     // --- Re-sort if a main point's X changed order ---
     if (m_selection.part == SelectedPart::MAIN_POINT) {
@@ -590,6 +640,7 @@ void CurveWidget::resetCurve()
     CurveNode node0(QPointF(0.0, 0.0));
     CurveNode node1(QPointF(1.0, 1.0));
 
+
     // Place handles to create an initial straight line (e.g., 1/3rd along segment)
     // Make sure this matches your constructor's initial handle placement!
     node0.handleOut = QPointF(1.0/3.0, 1.0/3.0);
@@ -610,4 +661,80 @@ void CurveWidget::resetCurve()
     // Notify UI and update display
     update(); // Repaint the widget
     emit curveChanged(); // Notify MainWindow (e.g., to update preview)
+}
+
+
+
+
+void CurveWidget::keyPressEvent(QKeyEvent *event)
+{
+    // Check if a main point is selected and it's not an endpoint (where alignment doesn't apply)
+    if (m_selection.part == SelectedPart::MAIN_POINT &&
+        m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1)
+    {
+        bool modeChanged = false;
+        CurveNode& node = m_nodes[m_selection.nodeIndex]; // Get reference
+        HandleAlignment originalMode = node.alignment; // Store original mode
+        HandleAlignment newMode = originalMode;       // Initialize new mode
+
+        // Determine new mode based on key press
+        switch (event->key()) {
+        case Qt::Key_F: newMode = HandleAlignment::Free; break;
+        case Qt::Key_A: newMode = HandleAlignment::Aligned; break;
+        case Qt::Key_M: newMode = HandleAlignment::Mirrored; break;
+        default:
+            QWidget::keyPressEvent(event); // Pass unhandled keys
+            return;
+        }
+
+        // Check if mode actually changed
+        if (newMode != originalMode) {
+            node.alignment = newMode; // Apply the new mode
+            modeChanged = true;
+            qDebug() << "Node" << m_selection.nodeIndex << "set to" << static_cast<int>(newMode);
+
+            // --- IMMEDIATE SNAP LOGIC ---
+            // If switched TO Aligned or Mirrored, snap handleIn based on handleOut
+            if (newMode == HandleAlignment::Aligned || newMode == HandleAlignment::Mirrored) {
+                const QPointF& mainPt = node.mainPoint;
+                QPointF* hIn = &node.handleIn;  // Pointer to handleIn
+                QPointF* hOut = &node.handleOut; // Pointer to handleOut
+
+                QPointF vecOut = *hOut - mainPt; // Vector from main to handleOut
+                qreal lenOutSq = QPointF::dotProduct(vecOut, vecOut);
+                QPointF newInPos; // Calculated new position for handleIn
+
+                if (lenOutSq < 1e-12) {
+                    // If handleOut is coincident, make handleIn coincident too
+                    newInPos = mainPt;
+                } else {
+                    qreal lenOut = qSqrt(lenOutSq);
+                    QPointF normDirIn = -vecOut / lenOut; // Normalized opposite direction
+
+                    if (newMode == HandleAlignment::Aligned) {
+                        // Keep handleIn's original distance
+                        QPointF vecInOld = *hIn - mainPt;
+                        qreal lenInOld = qSqrt(QPointF::dotProduct(vecInOld, vecInOld));
+                        newInPos = mainPt + normDirIn * lenInOld;
+                    } else { // Mirrored
+                        // Use handleOut's distance for handleIn
+                        newInPos = mainPt + normDirIn * lenOut;
+                    }
+                }
+                // Update handleIn and clamp its position
+                hIn->setX(std::max(0.0, std::min(1.0, newInPos.x())));
+                hIn->setY(std::max(0.0, std::min(1.0, newInPos.y())));
+            }
+            // --- END IMMEDIATE SNAP LOGIC ---
+
+            m_samplesDirty = true; // Curve shape might have changed due to snap
+            update();           // Repaint to show potential snap
+            emit curveChanged(); // Emit signal
+        } // end if(modeChanged)
+
+        event->accept(); // Indicate we handled the key press
+
+    } else { // If no valid main point selected, or it's an endpoint
+        QWidget::keyPressEvent(event); // Pass key press to base class
+    }
 }

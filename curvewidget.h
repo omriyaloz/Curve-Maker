@@ -12,16 +12,8 @@
 #include <QDebug> // For debugging output
 
 
+//class CurveWidget;
 
-// Structure to hold a main point and its associated control handles
-struct CurveNode {
-    QPointF mainPoint; // The point the curve passes through
-    QPointF handleIn;  // Controls the curve arriving at mainPoint (P2 of the segment ending here)
-    QPointF handleOut; // Controls the curve leaving mainPoint (P1 of the segment starting here)
-
-    // Default constructor for convenience
-    CurveNode(QPointF p = QPointF(0,0)) : mainPoint(p), handleIn(p), handleOut(p) {}
-};
 
 // Structure to return segment finding result
 struct ClosestSegmentResult {
@@ -41,14 +33,25 @@ public:
         Aligned, // Handles stay collinear with main point, opposite directions, independent length
         Mirrored // Aligned + equidistant from main point
     };
-    CurveWidget::HandleAlignment alignment = CurveWidget::HandleAlignment::Aligned; // Default to Aligned.
+
+    struct CurveNode {
+        QPointF mainPoint;
+        QPointF handleIn;
+        QPointF handleOut;
+        // Use unqualified name now, as it's in the same class scope
+        HandleAlignment alignment = HandleAlignment::Aligned; // Default
+
+        // Declaration only - Define implementation in .cpp
+        CurveNode(QPointF p = QPointF(0,0));
+    };
+
+
     // Optional: Get/Set alignment for a node externally?
-    // HandleAlignment getNodeAlignment(int index) const;
-    // void setNodeAlignment(int index, HandleAlignment mode);
+        // HandleAlignment getNodeAlignment(int index) const;
+        // void setNodeAlignment(int index, HandleAlignment mode);
 
     explicit CurveWidget(QWidget *parent = nullptr);
     QVector<CurveNode> getNodes() const;
-    // Sample the curve at a specific X value (uses approximation)
     qreal sampleCurve(qreal x) const;
     void resetCurve();
 
@@ -62,6 +65,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     // --- Helper functions ---
@@ -76,6 +80,7 @@ private:
         SelectedPart part = SelectedPart::NONE;
         int nodeIndex = -1;
     };
+
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
 
     void sortNodes(); // Ensure nodes are sorted by mainPoint.x()
@@ -97,5 +102,7 @@ private:
     const int m_numSamples = 256; // Number of samples for approximation LUT
 
 };
+
+
 
 #endif // CURVEWIDGET_H
