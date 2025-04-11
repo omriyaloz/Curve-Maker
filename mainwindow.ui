@@ -19,9 +19,6 @@
   <property name="windowTitle">
    <string>CurveMaker 1.0</string>
   </property>
-  <property name="styleSheet">
-   <string notr="true"/>
-  </property>
   <property name="iconSize">
    <size>
     <width>24</width>
@@ -29,14 +26,11 @@
    </size>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <property name="styleSheet">
-    <string notr="true">background-color: rgb(59, 59, 59);</string>
-   </property>
    <layout class="QVBoxLayout" name="verticalLayout_2">
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="tab_1">
        <attribute name="title">
@@ -132,9 +126,6 @@
              <property name="layoutDirection">
               <enum>Qt::LayoutDirection::LeftToRight</enum>
              </property>
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
              <property name="text">
               <string>LUT Preview</string>
              </property>
@@ -154,7 +145,7 @@
                 </sizepolicy>
                </property>
                <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
+                <string notr="true"/>
                </property>
                <property name="text">
                 <string>Free</string>
@@ -171,9 +162,6 @@
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
-               </property>
-               <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
                </property>
                <property name="text">
                 <string>Mirrored</string>
@@ -198,9 +186,6 @@
                  <bold>false</bold>
                 </font>
                </property>
-               <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
-               </property>
                <property name="text">
                 <string>Handle Type</string>
                </property>
@@ -216,9 +201,6 @@
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
-               </property>
-               <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
                </property>
                <property name="text">
                 <string>Aligned</string>
@@ -238,12 +220,11 @@
                <height>16777215</height>
               </size>
              </property>
-             <property name="styleSheet">
-              <string notr="true">
-color: rgb(186, 186, 186);</string>
-             </property>
              <property name="text">
               <string>Reset curve</string>
+             </property>
+             <property name="icon">
+              <iconset theme="QIcon::ThemeIcon::ViewRestore"/>
              </property>
             </widget>
            </item>
@@ -258,9 +239,6 @@ color: rgb(186, 186, 186);</string>
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
-       </property>
-       <property name="styleSheet">
-        <string notr="true">background-color: rgb(98, 98, 98);</string>
        </property>
        <attribute name="title">
         <string>LUT</string>
@@ -279,9 +257,6 @@ color: rgb(186, 186, 186);</string>
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">background-color: rgb(61, 61, 61);</string>
         </property>
         <property name="frameShape">
          <enum>QFrame::Shape::StyledPanel</enum>
@@ -302,9 +277,6 @@ color: rgb(186, 186, 186);</string>
              </property>
              <property name="layoutDirection">
               <enum>Qt::LayoutDirection::LeftToRight</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
              </property>
              <property name="text">
               <string>LUT Preview</string>
@@ -344,9 +316,6 @@ color: rgb(186, 186, 186);</string>
             <layout class="QHBoxLayout" name="horizontalLayout_2">
              <item>
               <widget class="QLabel" name="exportPathLabel">
-               <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
-               </property>
                <property name="text">
                 <string>Export Path</string>
                </property>
@@ -354,9 +323,6 @@ color: rgb(186, 186, 186);</string>
              </item>
              <item>
               <widget class="QLineEdit" name="filePathLineEdit">
-               <property name="styleSheet">
-                <string notr="true">color: rgb(220, 220, 220);</string>
-               </property>
                <property name="text">
                 <string>Click Browse...</string>
                </property>
@@ -366,9 +332,6 @@ color: rgb(186, 186, 186);</string>
            </item>
            <item>
             <widget class="QPushButton" name="browseButton">
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
              <property name="text">
               <string>Browse...</string>
              </property>
@@ -380,20 +343,13 @@ color: rgb(186, 186, 186);</string>
           <layout class="QHBoxLayout" name="horizontalLayout">
            <item>
             <widget class="QLabel" name="lutSizeLabelText">
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
              <property name="text">
               <string>LUT Size (width)</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QComboBox" name="lutSizeComboBox">
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
-            </widget>
+            <widget class="QComboBox" name="lutSizeComboBox"/>
            </item>
           </layout>
          </item>
@@ -401,28 +357,18 @@ color: rgb(186, 186, 186);</string>
           <layout class="QHBoxLayout" name="horizontalLayout_3">
            <item>
             <widget class="QLabel" name="bitDepthLabel">
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
              <property name="text">
               <string>Bit Depth</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QComboBox" name="bitDepthComboBox">
-             <property name="styleSheet">
-              <string notr="true">color: rgb(220, 220, 220);</string>
-             </property>
-            </widget>
+            <widget class="QComboBox" name="bitDepthComboBox"/>
            </item>
           </layout>
          </item>
          <item>
           <widget class="QPushButton" name="exportButton">
-           <property name="styleSheet">
-            <string notr="true">color: rgb(220, 220, 220);</string>
-           </property>
            <property name="text">
             <string>Export LUT</string>
            </property>
@@ -449,14 +395,40 @@ color: rgb(186, 186, 186);</string>
      <height>21</height>
     </rect>
    </property>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>Edit</string>
+    </property>
+   </widget>
    <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>File</string>
     </property>
    </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionToggleDarkMode"/>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuView"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="action">
+   <property name="text">
+    <string>Undo (Ctrl+Z)</string>
+   </property>
+  </action>
+  <action name="actionToggleDarkMode">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Dark Mode</string>
+   </property>
+  </action>
  </widget>
  <customwidgets>
   <customwidget>

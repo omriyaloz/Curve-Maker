@@ -1,4 +1,5 @@
 #include "curvewidget.h"
+#include "setcurvestatecommand.h"
 #include <QPainter>
 #include <QPen>
 #include <QBrush>
@@ -50,6 +51,7 @@ CurveWidget::CurveWidget(QWidget *parent)
     setPalette(pal);
 
     setFocusPolicy(Qt::ClickFocus);
+    setAutoFillBackground(true);
 }
 
 // --- Public Accessors ---
@@ -134,15 +136,32 @@ void CurveWidget::paintEvent(QPaintEvent *event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // --- Optional Grid --- (same as before)
-    painter.setPen(QPen(Qt::gray, 0.5));
+    const QPalette& pal = this->palette(); // Use the widget's own palette
+
+    // --- Define Colors based on m_isDarkMode flag ---
+    // You can still use palette for *some* base colors if desired,
+    // but explicitly defining sets might be clearer now.
+    QColor bgColor = m_isDarkMode ? QColor(53, 53, 53) : QColor(240, 240, 240); // Example dark/light BG
+    QColor gridColor = m_isDarkMode ? QColor(80, 80, 80) : QColor(210, 210, 210);
+    QColor curveColor = m_isDarkMode ? QColor(230, 230, 230) : QColor(10, 10, 10); // Light curve on dark, dark on light
+    QColor mainPointColor = curveColor; // Use same as curve
+    QColor handleColor = m_isDarkMode ? QColor(0, 180, 180) : QColor(0, 100, 100); // Cyan variations
+    QColor handleLineColor = gridColor.darker(120);
+    QColor selectionColor = Qt::yellow; // Keep selection yellow
+    QColor borderColor = gridColor;
+
+    // Set background - RECOMMENDED: Set autoFillBackground=true and set Window role in palette instead
+    // painter.fillRect(rect(), bgColor); // Manual background fill (alternative)
+
+    // --- Draw Grid ---
+    painter.setPen(QPen(gridColor, 0.5));
     int numGridLines = 10;
     for (int i = 1; i < numGridLines; ++i) {
         qreal ratio = static_cast<qreal>(i) / numGridLines;
         painter.drawLine(mapToWidget(QPointF(ratio, 1.0)), mapToWidget(QPointF(ratio, 0.0)));
         painter.drawLine(mapToWidget(QPointF(0.0, ratio)), mapToWidget(QPointF(1.0, ratio)));
     }
-    painter.setPen(QPen(Qt::lightGray, 1));
+    painter.setPen(QPen(borderColor, 1));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
 
     if (m_nodes.size() < 2) return; // Need at least two nodes to draw a curve
@@ -159,7 +178,7 @@ void CurveWidget::paintEvent(QPaintEvent *event)
         QPointF p3_widget = mapToWidget(node1.mainPoint);
         curvePath.cubicTo(p1_widget, p2_widget, p3_widget);
     }
-    painter.setPen(QPen(Qt::white, 2));
+    painter.setPen(QPen(curveColor, 2));
     painter.drawPath(curvePath);
 
     // --- Draw Nodes and Handles ---
@@ -169,32 +188,38 @@ void CurveWidget::paintEvent(QPaintEvent *event)
         QPointF handleInWidgetPos = mapToWidget(node.handleIn);
         QPointF handleOutWidgetPos = mapToWidget(node.handleOut);
 
-        // Draw Handles and lines first (so main point is on top)
-        painter.setPen(QPen(Qt::cyan, 1)); // Handle lines
-        if (i > 0) { // Node 0 has no incoming segment/handle to draw
-            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_IN && m_selection.nodeIndex == i) ? Qt::yellow : Qt::cyan);
+        // Draw Handle Lines
+        painter.setPen(QPen(handleLineColor, 1)); // Use palette color
+        if (i > 0) painter.drawLine(mainWidgetPos, handleInWidgetPos);
+        if (i < m_nodes.size() - 1) painter.drawLine(mainWidgetPos, handleOutWidgetPos);
+
+        // Draw Handles
+        painter.setPen(QPen(bgColor.lighter(110), 0.5));
+        if (i > 0) { // Handle In
+            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_IN && m_selection.nodeIndex == i) ? selectionColor : handleColor);
             painter.drawEllipse(handleInWidgetPos, m_handleRadius, m_handleRadius);
-            painter.drawLine(mainWidgetPos, handleInWidgetPos);
         }
-        if (i < m_nodes.size() - 1) { // Last node has no outgoing segment/handle to draw
-            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_OUT && m_selection.nodeIndex == i) ? Qt::yellow : Qt::cyan);
+        if (i < m_nodes.size() - 1) { // Handle Out
+            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_OUT && m_selection.nodeIndex == i) ? selectionColor : handleColor);
             painter.drawEllipse(handleOutWidgetPos, m_handleRadius, m_handleRadius);
-            painter.drawLine(mainWidgetPos, handleOutWidgetPos);
         }
 
         // Draw Main Point
-        painter.setPen(QPen(Qt::black, 1));
-        painter.setBrush( (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex == i) ? Qt::yellow : Qt::white);
+        painter.setPen(QPen(bgColor.lighter(110), 1)); // Black outline for main point
+        painter.setBrush( (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex == i) ? selectionColor : mainPointColor); // Use palette color
         painter.drawEllipse(mainWidgetPos, m_mainPointRadius, m_mainPointRadius);
     }
 }
 
-// --- Modified mousePressEvent ---
+
 void CurveWidget::mousePressEvent(QMouseEvent *event)
 {
     SelectionInfo oldSelection = m_selection;
     m_selection = findNearbyPart(event->pos());
     m_dragging = (m_selection.part != SelectedPart::NONE);
+    if (m_dragging) {
+        m_stateBeforeAction = m_nodes; // Store state BEFORE drag
+    }
 
     // Emit Signal on Selection Change
     if (m_selection.nodeIndex != oldSelection.nodeIndex || m_selection.part != oldSelection.part) {
@@ -216,6 +241,7 @@ void CurveWidget::mousePressEvent(QMouseEvent *event)
             // Point selected, ready for drag (no action needed here)
         } else {
             // Add New Node using Curve Splitting
+            m_stateBeforeAction = m_nodes;
             ClosestSegmentResult hit = findClosestSegment(event->pos());
             const qreal t_tolerance = 0.001;
             if (hit.segmentIndex != -1 && hit.t > t_tolerance && hit.t < (1.0 - t_tolerance)) {
@@ -226,6 +252,7 @@ void CurveWidget::mousePressEvent(QMouseEvent *event)
                 const QPointF p2 = m_nodes[i+1].handleIn;
                 const QPointF p3 = m_nodes[i+1].mainPoint;
 
+
                 SubdivisionResult split = subdivideBezier(p0, p1, p2, p3, t);
                 CurveNode newNode(split.pointOnCurve); // Constructor sets default alignment
                 newNode.handleIn = split.handle2_Seg1;
@@ -234,13 +261,19 @@ void CurveWidget::mousePressEvent(QMouseEvent *event)
                 m_nodes[i+1].handleIn = split.handle2_Seg2;
 
                 m_nodes.insert(i + 1, newNode);
+
+                if(m_stateBeforeAction != m_nodes) {
+                    m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Add Node"));
+                }
                 m_samplesDirty = true;
                 m_selection = {SelectedPart::MAIN_POINT, i + 1}; // Select new node
-                m_dragging = true; // Allow immediate drag
+                m_dragging = true;
                 update();
                 emit curveChanged();
                 // Emit selection changed for the newly added node
                 emit selectionChanged(m_selection.nodeIndex, newNode.alignment);
+            } else {
+                m_stateBeforeAction.clear(); // No action started
             }
         }
         // --- Handle Right Button Click (Deleting) ---
@@ -394,14 +427,23 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
     emit curveChanged();
 }
 
+
+
 void CurveWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton) {
+    if (m_dragging && event->button() == Qt::LeftButton) {
+        // Drag finished, check if state changed
+        if (m_stateBeforeAction != m_nodes) {
+            // *** Push command with before/after states ***
+            m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Modify Curve"));
+                // Consider enabling merging:
+                // cmd->setObsolete(false); // Mark previous potentially merged command as not obsolete
+        }
         m_dragging = false;
-        // Optional: keep selection active?
-        // m_selection.part = SelectedPart::NONE;
-        // update();
+        m_stateBeforeAction.clear(); // Clear stored state
+
     }
+    // Handle other button releases if needed
 }
 
 void CurveWidget::resizeEvent(QResizeEvent *event)
@@ -634,6 +676,7 @@ ClosestSegmentResult CurveWidget::findClosestSegment(const QPoint& widgetPos) co
 // Add this function implementation in curvewidget.cpp
 void CurveWidget::resetCurve()
 {
+    m_stateBeforeAction = m_nodes;
     m_nodes.clear(); // Remove all existing nodes
 
     // Re-initialize with the default straight line (same logic as constructor)
@@ -652,6 +695,10 @@ void CurveWidget::resetCurve()
 
     m_nodes.append(node0);
     m_nodes.append(node1);
+
+    if (m_stateBeforeAction != m_nodes) {
+        m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Reset Curve"));
+    }
 
     // Reset state
     m_samplesDirty = true; // Mark samples needing update
@@ -675,6 +722,8 @@ void CurveWidget::keyPressEvent(QKeyEvent *event)
         HandleAlignment originalMode = node.alignment;
         HandleAlignment newMode;
 
+
+
         switch (event->key()) {
         case Qt::Key_F: newMode = HandleAlignment::Free; break;
         case Qt::Key_A: newMode = HandleAlignment::Aligned; break;
@@ -685,6 +734,15 @@ void CurveWidget::keyPressEvent(QKeyEvent *event)
         }
 
         if (newMode != originalMode) {
+
+            m_stateBeforeAction = m_nodes; // Store state BEFORE change
+            node.alignment = newMode;
+            applyAlignmentSnap(m_selection.nodeIndex); // Apply snap AFTER setting mode
+
+            // Compare states and push command
+            if (m_stateBeforeAction != m_nodes) {
+                m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
+            }
             node.alignment = newMode; // Set the new mode
             qDebug() << "Node" << m_selection.nodeIndex << "alignment set to" << static_cast<int>(newMode) << "via keypress";
 
@@ -754,6 +812,7 @@ void CurveWidget::setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment m
     // Check if index is valid and mode is actually changing
     if (nodeIndex >= 0 && nodeIndex < m_nodes.size() && m_nodes[nodeIndex].alignment != mode)
     {
+        m_stateBeforeAction = m_nodes;
         CurveNode& node = m_nodes[nodeIndex];
         node.alignment = mode; // Set the new mode
         qDebug() << "Node" << nodeIndex << "alignment set to" << static_cast<int>(mode) << "via slot";
@@ -761,10 +820,46 @@ void CurveWidget::setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment m
         // Apply immediate snap logic using the helper function
         applyAlignmentSnap(nodeIndex); // Pass the index
 
+        if (m_stateBeforeAction != m_nodes) {
+            m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
+        }
+
         m_samplesDirty = true;
         update();
         emit curveChanged();
         // Emit selection changed again so button states in MainWindow update
         emit selectionChanged(nodeIndex, mode);
+    }
+}
+
+
+void CurveWidget::restoreNodesInternal(const QVector<CurveNode>& nodes)
+{
+    // Check if state actually changed to avoid unnecessary updates/signal emissions
+    if (m_nodes != nodes) { // QVector<CurveNode> needs operator== defined (or implement manual check)
+        // Default QVector operator== should work if CurveNode is comparable
+        m_nodes = nodes;
+        m_samplesDirty = true;
+        m_selection = {SelectedPart::NONE, -1}; // Reset selection on undo/redo
+        m_dragging = false;
+        update();
+        emit curveChanged();
+        // Emit deselection
+        emit selectionChanged(m_selection.nodeIndex, HandleAlignment::Free);
+    }
+}
+
+
+void CurveWidget::setDarkMode(bool dark)
+{
+    if (m_isDarkMode != dark) {
+        m_isDarkMode = dark;
+        // Update palette maybe? Or rely solely on paintEvent check.
+        // Setting a basic palette might still be useful for font colors etc.
+        QPalette p = palette();
+        p.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black); // Example
+        setPalette(p);
+
+        update(); // Trigger repaint when mode changes
     }
 }

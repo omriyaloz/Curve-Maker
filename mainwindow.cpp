@@ -13,12 +13,67 @@
 #include <QFileInfo>      // For robust path joining (optional)
 #include <QButtonGroup>
 
+#include <QAction>
+#include <QMenu> // If adding to menu
+#include <QUndoStack> // Needed for createUndoAction
+#include <QKeySequence>
+
+#include <QApplication> // For QApplication::setPalette/palette
+#include <QPalette>     // For QPalette
+#include <QStyleFactory>// Optional: To force a consistent style
+#include <QSettings>    // To save the theme preference
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow) // Create the UI instance
     , m_selectedNodeIndex(-1)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
+
+    qApp->setStyle(QStyleFactory::create("Fusion"));
+    // --- Load Theme Preference ---
+    QSettings settings("MyCompany", "CurveMaker");
+    bool useDarkMode = settings.value("Appearance/DarkMode", false).toBool();
+    ui->actionToggleDarkMode->setChecked(useDarkMode); // This will trigger on_actionToggleDarkMode_toggled if connected
+
+    // Ensure connection exists (auto-connection should work)
+    // connect(ui->actionToggleDarkMode, &QAction::toggled, this, &MainWindow::on_actionToggleDarkMode_toggled);
+
+    // Apply initial theme explicitly if setChecked doesn't trigger reliably before show()
+    applyTheme(useDarkMode);
+    // ---------------------------
+
+    // *** Create Undo/Redo Actions using CurveWidget's Stack ***
+    // Ensure curveWidget is valid before accessing its stack
+    if (ui->curveWidget) {
+        QUndoStack *undoStack = ui->curveWidget->undoStack(); // Get stack via getter
+
+        QAction *undoAction = undoStack->createUndoAction(this, tr("&Undo"));
+        undoAction->setShortcut(QKeySequence::Undo); // e.g., Ctrl+Z
+
+        QAction *redoAction = undoStack->createRedoAction(this, tr("&Redo"));
+        redoAction->setShortcut(QKeySequence::Redo); // e.g., Ctrl+Y / Ctrl+Shift+Z
+
+        // --- Add actions to an "Edit" menu (Create menu in Designer first!) ---
+        // Assuming you created a menu named 'menuEdit' in mainwindow.ui
+        if(ui->menuEdit) { // Check if menu exists
+            ui->menuEdit->addAction(undoAction);
+            ui->menuEdit->addAction(redoAction);
+            // Add separators if needed: ui->menuEdit->addSeparator();
+        } else {
+            qWarning() << "Could not find menu 'menuEdit'. Add it in the UI Designer.";
+        }
+
+        // --- Optional: Add actions to a toolbar ---
+        // Assuming you created a toolbar named 'mainToolBar' in mainwindow.ui
+        // if(ui->mainToolBar) {
+        //    ui->mainToolBar->addAction(undoAction);
+        //    ui->mainToolBar->addAction(redoAction);
+        // }
+
+    } else {
+        qCritical() << "CurveWidget instance is null!";
+    }
 
     // --- Populate Bit Depth ComboBox ---
     // Add items: Display Text, UserData (stores the QImage::Format value)
@@ -73,6 +128,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->curveWidget, &CurveWidget::selectionChanged,
             this, &MainWindow::onCurveSelectionChanged);
 
+    applyTheme(useDarkMode);
     updateLUTPreview(); // Show initial preview
 
     // --- Initial Button State ---
@@ -82,6 +138,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->mirroredBtn->setEnabled(false);
     // --------------------------
 
+
+
 }
 
 MainWindow::~MainWindow()
@@ -90,8 +148,56 @@ MainWindow::~MainWindow()
 }
 
 
+// --- Slot for Theme Toggle Action ---
+void MainWindow::on_actionToggleDarkMode_toggled(bool checked)
+{
+    applyTheme(checked);
 
-// --- Slot Implementations ---
+    // --- Save Theme Preference ---
+    QSettings settings("MyCompany", "CurveMaker");
+    settings.setValue("Appearance/DarkMode", checked);
+    // ---------------------------
+}
+// --- Helper Function to Apply Theme ---
+void MainWindow::applyTheme(bool dark)
+{
+    QString styleSheet = "";
+    if (dark) {
+        // Load dark stylesheet from resources
+        QFile f(":/themes/dark.qss");
+        if (f.open(QFile::ReadOnly | QFile::Text)) {
+            QTextStream ts(&f);
+            styleSheet = ts.readAll();
+            f.close();
+        } else {
+            qWarning() << "Could not load dark theme file :/themes/dark.qss";
+        }
+    } else {
+        // Load light stylesheet (could be empty or contain overrides)
+        QFile f(":/themes/light.qss"); // Or just set styleSheet = "";
+        if (f.open(QFile::ReadOnly | QFile::Text)) {
+            QTextStream ts(&f);
+            styleSheet = ts.readAll();
+            f.close();
+        } else {
+            // Okay if light theme is empty/missing, will revert
+        }
+    }
+
+    // Apply the loaded stylesheet globally
+    qApp->setStyleSheet(styleSheet);
+
+    // Also explicitly reset palette when switching to light? Optional.
+    // if (!dark) {
+    //     qApp->setPalette(qApp->style()->standardPalette());
+    // }
+
+    // Update the custom widget explicitly
+    if (ui->curveWidget) {
+        ui->curveWidget->setDarkMode(dark);
+    }
+}
+
 
 void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment) {
     m_selectedNodeIndex = nodeIndex; // Store the selected index

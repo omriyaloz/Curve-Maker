@@ -1,0 +1,110 @@
+/* Basic Light Theme */
+
+/* Global - Approximate default Fusion/Windows light */
+QWidget {
+    background-color: #b5b3b3; /* Standard light gray window background */
+    color: black;             /* Standard black text */
+    border: none;             /* Reset borders */
+    font-size: 9pt;           /* Reset font size */
+    /* Reset any other global properties set in dark.qss */
+}
+
+/* Main Window & Dialogs */
+QMainWindow, QDialog {
+    background-color: #F0F0F0;
+}
+
+/* Menu Bar & Menus */
+QMenuBar {
+    background-color: #F0F0F0;
+    color: black;
+}
+QMenuBar::item:selected {
+    background-color: #E0E0E0; /* Light gray selection */
+}
+QMenu {
+    background-color: #FFFFFF; /* White menu background */
+    border: 1px solid #BEBEBE; /* Standard gray border */
+    color: black;
+}
+QMenu::item:selected {
+    background-color: #0078D7; /* Standard blue highlight */
+    color: white;
+}
+QMenu::separator {
+    height: 1px;
+    background: #D0D0D0;
+    margin-left: 10px;
+    margin-right: 5px;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #F6F6F6, stop: 1 #E0E0E0); /* Default-like gradient */
+    color: black;
+    border: 1px solid #ADADAD;
+    padding: 4px 8px;
+    min-height: 16px;
+    border-radius: 2px;
+}
+QPushButton:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #EAF6FF, stop: 1 #D9F0FF); /* Light blue hover */
+    border-color: #78B6E6;
+}
+QPushButton:pressed {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #D4EAFC, stop: 1 #C4E0F9);
+}
+QPushButton:disabled {
+    background-color: #F0F0F0;
+    color: #A0A0A0; /* Disabled gray text */
+    border-color: #C0C0C0;
+}
+QPushButton:checked { /* Style for checkable buttons */
+    background-color: #CDE8FF; /* Lighter blue when checked */
+    color: black;
+    border: 1px solid #78B6E6;
+}
+QPushButton:focus { /* Optional focus indicator */
+     border: 1px solid #0078D7;
+}
+
+
+/* Input Widgets */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: white;
+    color: black;
+    border: 1px solid #ABADB3; /* Standard input border */
+    padding: 3px;
+    min-height: 16px;
+}
+/* Reset spin/combo buttons if styled in dark */
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button,
+QComboBox::drop-down {
+     background-color: #F0F0F0; /* Match window background */
+     border: 1px solid #ADADAD; /* Standard border */
+     /* Optionally reset width/icons if set in dark theme */
+     width: 14px;
+     /* image: none; */
+}
+QComboBox QAbstractItemView { /* Dropdown list style */
+    border: 1px solid #BEBEBE;
+    background-color: white;
+    color: black;
+    selection-background-color: #0078D7; /* Standard blue highlight */
+    selection-color: white;
+}
+
+/* Labels */
+QLabel {
+    background-color: transparent; /* Ensure labels don't have opaque background */
+    color: black;
+    border: none;
+}
+#lutPreviewLabel { /* Style the preview label background */
+    border: 1px solid #BEBEBE; /* Standard light border */
+    background-color: #FFFFFF; /* White background */
+}
+
+/* Reset CurveWidget specific styles if any were set via QSS */
+/* CurveWidget { border: none; } */

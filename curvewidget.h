@@ -10,6 +10,7 @@
 #include <QPainterPath> // Needed for cubicTo
 #include <QKeyEvent>
 #include <QDebug> // For debugging output
+#include <QUndoStack>
 
 
 //class CurveWidget;
@@ -43,6 +44,14 @@ public:
 
         // Declaration only - Define implementation in .cpp
         CurveNode(QPointF p = QPointF(0,0));
+
+
+        bool operator==(const CurveNode& other) const {
+            return mainPoint == other.mainPoint &&
+                   handleIn == other.handleIn &&
+                   handleOut == other.handleOut &&
+                   alignment == other.alignment;
+        }
     };
 
     explicit CurveWidget(QWidget *parent = nullptr);
@@ -50,7 +59,10 @@ public:
     qreal sampleCurve(qreal x) const;
     void resetCurve();
 
-    
+    QUndoStack* undoStack() { return &m_undoStack; }
+    friend class SetCurveStateCommand;
+    void setDarkMode(bool dark);
+
 public slots:
     void setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode);
 
@@ -68,11 +80,13 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void restoreNodesInternal(const QVector<CurveNode>& nodes);
 
 private:
     // --- Helper functions ---
     QPointF mapToWidget(const QPointF& logicalPoint) const;
     QPointF mapFromWidget(const QPoint& widgetPoint) const;
+
 
 
     ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
@@ -107,6 +121,12 @@ private:
     mutable bool m_samplesDirty = true; // Flag to recalculate samples when curve changes
      // Recalculate the lookup table
     const int m_numSamples = 256; // Number of samples for approximation LUT
+    // *** Add Undo Stack member ***
+    QUndoStack m_undoStack;
+
+    // *** Add member to store state before an action starts ***
+    QVector<CurveNode> m_stateBeforeAction;
+    bool m_isDarkMode = false;
 
 };
 

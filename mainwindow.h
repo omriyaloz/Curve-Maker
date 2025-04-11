@@ -30,11 +30,12 @@ private slots: // Declare the functions that will handle UI events
     void on_alignedBtn_clicked();
     void on_mirroredBtn_clicked();
     void onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
+    void on_actionToggleDarkMode_toggled(bool checked);
 
 private:
     Ui::MainWindow *ui; // Pointer to the UI elements defined in mainwindow.ui
     QImage generateLUTImage(int size, QImage::Format format); // Helper function
     int m_selectedNodeIndex = -1;
-    //QButtonGroup *m_alignmentGroup;
+    void applyTheme(bool dark);
 };
 #endif // MAINWINDOW_H
