@@ -371,11 +371,17 @@ QImage MainWindow::generateLUTImage(int size, QImage::Format format) // Added fo
     return image;
 }
 
-// Add this slot implementation in mainwindow.cpp
+
 void MainWindow::on_resetButton_clicked()
 {
     // Check if the curveWidget pointer is valid (it should be)
     if (ui->curveWidget) {
         ui->curveWidget->resetCurve(); // Call the reset function on the widget instance
     }
+}
+
+
+void MainWindow::on_modeBtn_clicked(bool checked)
+{
+    applyTheme(checked);
 }

@@ -31,6 +31,7 @@ private slots: // Declare the functions that will handle UI events
     void on_mirroredBtn_clicked();
     void onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
     void on_actionToggleDarkMode_toggled(bool checked);
+    void on_modeBtn_clicked(bool checked);
 
 private:
     Ui::MainWindow *ui; // Pointer to the UI elements defined in mainwindow.ui
