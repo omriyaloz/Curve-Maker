@@ -1,370 +1,452 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h" // The header generated from mainwindow.ui
-#include "curvewidget.h"   // Make sure it's included
+#include "curvewidget.h"   // CurveWidget definition
 
-#include <QFileDialog>    // For browse dialog
-#include <QMessageBox>    // For showing messages
-#include <QPixmap>        // For displaying preview
-#include <QDebug>         // For debug output
-
-
-#include <QStandardPaths> // To find standard locations like Desktop
-#include <QDir>           // For path manipulation (optional but good practice)
-#include <QFileInfo>      // For robust path joining (optional)
-#include <QButtonGroup>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPixmap>
+#include <QDebug>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFileInfo>
+#include <QButtonGroup> // For channel selection
+#include <QAbstractButton> // For channel button signal
+#include <QRadioButton> // If using radio buttons for channels
 
 #include <QAction>
-#include <QMenu> // If adding to menu
-#include <QUndoStack> // Needed for createUndoAction
+#include <QMenu>
+#include <QUndoStack> // Needed for createUndoAction/curveWidget access
 #include <QKeySequence>
 
-#include <QApplication> // For QApplication::setPalette/palette
-#include <QPalette>     // For QPalette
-#include <QStyleFactory>// Optional: To force a consistent style
-#include <QSettings>    // To save the theme preference
+#include <QApplication>
+#include <QPalette>
+#include <QStyleFactory>
+#include <QSettings>
+#include <QPainter> // Needed for drawing LUT preview gradient if desired
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow) // Create the UI instance
     , m_selectedNodeIndex(-1)
+    , m_channelGroup(nullptr) // Initialize button group pointer
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
 
+    // --- Style and Theme Setup ---
     qApp->setStyle(QStyleFactory::create("Fusion"));
-    // --- Load Theme Preference ---
     QSettings settings("MyCompany", "CurveMaker");
     bool useDarkMode = settings.value("Appearance/DarkMode", false).toBool();
-    ui->actionToggleDarkMode->setChecked(useDarkMode); // This will trigger on_actionToggleDarkMode_toggled if connected
+    ui->actionToggleDarkMode->setChecked(useDarkMode);
+    applyTheme(useDarkMode); // Apply initial theme
 
-    // Ensure connection exists (auto-connection should work)
-    // connect(ui->actionToggleDarkMode, &QAction::toggled, this, &MainWindow::on_actionToggleDarkMode_toggled);
-
-    // Apply initial theme explicitly if setChecked doesn't trigger reliably before show()
-    applyTheme(useDarkMode);
-    // ---------------------------
-
-    // *** Create Undo/Redo Actions using CurveWidget's Stack ***
-    // Ensure curveWidget is valid before accessing its stack
-    if (ui->curveWidget) {
-        QUndoStack *undoStack = ui->curveWidget->undoStack(); // Get stack via getter
-
+    // --- Undo/Redo Setup ---
+    if (ui->curveWidget && ui->curveWidget->undoStack()) { // Check both widget and stack
+        QUndoStack *undoStack = ui->curveWidget->undoStack();
         QAction *undoAction = undoStack->createUndoAction(this, tr("&Undo"));
-        undoAction->setShortcut(QKeySequence::Undo); // e.g., Ctrl+Z
-
+        undoAction->setShortcut(QKeySequence::Undo);
         QAction *redoAction = undoStack->createRedoAction(this, tr("&Redo"));
-        redoAction->setShortcut(QKeySequence::Redo); // e.g., Ctrl+Y / Ctrl+Shift+Z
+        redoAction->setShortcut(QKeySequence::Redo);
 
-        // --- Add actions to an "Edit" menu (Create menu in Designer first!) ---
-        // Assuming you created a menu named 'menuEdit' in mainwindow.ui
-        if(ui->menuEdit) { // Check if menu exists
+        if(ui->menuEdit) {
             ui->menuEdit->addAction(undoAction);
             ui->menuEdit->addAction(redoAction);
-            // Add separators if needed: ui->menuEdit->addSeparator();
         } else {
             qWarning() << "Could not find menu 'menuEdit'. Add it in the UI Designer.";
         }
-
-        // --- Optional: Add actions to a toolbar ---
-        // Assuming you created a toolbar named 'mainToolBar' in mainwindow.ui
-        // if(ui->mainToolBar) {
-        //    ui->mainToolBar->addAction(undoAction);
-        //    ui->mainToolBar->addAction(redoAction);
-        // }
-
     } else {
-        qCritical() << "CurveWidget instance is null!";
+        qCritical() << "CurveWidget instance or its UndoStack is null!";
     }
 
-    // --- Populate Bit Depth ComboBox ---
-    // Add items: Display Text, UserData (stores the QImage::Format value)
-    ui->bitDepthComboBox->addItem("8-bit Grayscale", QVariant::fromValue(QImage::Format_Grayscale8));
-    ui->bitDepthComboBox->addItem("16-bit Grayscale", QVariant::fromValue(QImage::Format_Grayscale16));
-    // Set 16-bit as the default selection
-    ui->bitDepthComboBox->setCurrentIndex(1);
-    // ------------------------------------
+    // --- Channel Selection Setup ---
+    // Assumes radio buttons channelRedButton, channelGreenButton, channelBlueButton exist in UI
+    m_channelGroup = new QButtonGroup(this);
+    if (ui->channelRedButton) m_channelGroup->addButton(ui->channelRedButton);
+    if (ui->channelGreenButton) m_channelGroup->addButton(ui->channelGreenButton);
+    if (ui->channelBlueButton) m_channelGroup->addButton(ui->channelBlueButton);
 
-    // --- Set Default Export Path ---
+    // Check if buttons were added successfully
+    if (m_channelGroup->buttons().isEmpty()) {
+        qWarning() << "No channel selection buttons (channelRedButton, etc.) found or added to group.";
+    } else {
+        // Set Red as default checked
+        if (ui->channelRedButton) ui->channelRedButton->setChecked(true);
+        // Connect the group's signal to our slot
+        connect(m_channelGroup, &QButtonGroup::buttonClicked, this, &MainWindow::onChannelButtonClicked);
+    }
+
+
+    // --- LUT Width ComboBox Setup ---
+    QList<int> lutWidths = {64, 128, 256, 512, 1024}; // Widths for 1D LUT
+    for (int width : lutWidths) {
+        // Display text is the number, UserData holds the integer value
+        ui->lutSizeComboBox->addItem(QString::number(width), QVariant(width));
+    }
+    ui->lutSizeComboBox->setCurrentText("256"); // Default export width
+
+
+    // --- Default Export Path Setup ---
     QString desktopPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
-    QString defaultFileName = "curve_lut.png"; // Your desired default filename
+    // Suggest more specific filename
+    QString defaultFileName = "easing_lut_rgb.png";
     QString defaultFullPath;
-
     if (!desktopPath.isEmpty()) {
-        // Method 1: Using QDir (robust way to join path and filename)
         QDir desktopDir(desktopPath);
         defaultFullPath = desktopDir.filePath(defaultFileName);
-
-        // Method 2: Simple string concatenation (less robust with separators)
-        // defaultFullPath = desktopPath + QDir::separator() + defaultFileName;
     } else {
-        // Fallback if Desktop path couldn't be determined (rare)
-        qWarning() << "Could not determine Desktop path. Using current directory.";
-        defaultFullPath = defaultFileName; // Default to just the filename
+        qWarning() << "Could not determine Desktop path.";
+        defaultFullPath = defaultFileName;
     }
     ui->filePathLineEdit->setText(defaultFullPath);
 
-    // // --- Optional: Set up Button Group ---
-    // m_alignmentGroup = new QButtonGroup(this);
-    // m_alignmentGroup->addButton(ui->freeBtn);
-    // m_alignmentGroup->addButton(ui->alignedBtn);
-    // m_alignmentGroup->addButton(ui->mirroredBtn);
-    // m_alignmentGroup->setExclusive(true); // Only one can be checked
-    // //------------------------------------
-
-
-    // --- Populate LUT Size ComboBox ---
-    QList<int> lutSizes = {32, 64, 128, 256, 512}; // Add/remove sizes as needed
-    for (int size : lutSizes) {
-        // Add item: Display text is the number, UserData holds the integer value
-        ui->lutSizeComboBox->addItem(QString::number(size), QVariant(size));
-    }
-    ui->lutSizeComboBox->setCurrentText("256"); // Set default selection
 
     // --- Connect Signals to Slots ---
+    if (ui->curveWidget) {
+        connect(ui->curveWidget, &CurveWidget::curveChanged,
+                this, &MainWindow::updateLUTPreview); // Slot implementation updated below
 
+        connect(ui->curveWidget, &CurveWidget::selectionChanged,
+                this, &MainWindow::onCurveSelectionChanged);
+    }
 
-    connect(ui->curveWidget, &CurveWidget::curveChanged,
-            this, &MainWindow::updateLUTPreview);
-
-    connect(ui->curveWidget, &CurveWidget::selectionChanged,
-            this, &MainWindow::onCurveSelectionChanged);
-
-    applyTheme(useDarkMode);
-    updateLUTPreview(); // Show initial preview
-
-    // --- Initial Button State ---
-    // Disable buttons initially as nothing is selected
+    // --- Initial State (Unchanged, but preview behavior changes) ---
+    updateLUTPreview();
     ui->freeBtn->setEnabled(false);
     ui->alignedBtn->setEnabled(false);
     ui->mirroredBtn->setEnabled(false);
-    // --------------------------
-
-
-
 }
 
 MainWindow::~MainWindow()
 {
+    // No need to delete m_channelGroup if 'this' is parent
     delete ui; // Clean up the UI
 }
 
 
-// --- Slot for Theme Toggle Action ---
+// --- Slot Implementations ---
+
 void MainWindow::on_actionToggleDarkMode_toggled(bool checked)
 {
     applyTheme(checked);
-
-    // --- Save Theme Preference ---
     QSettings settings("MyCompany", "CurveMaker");
     settings.setValue("Appearance/DarkMode", checked);
-    // ---------------------------
 }
-// --- Helper Function to Apply Theme ---
+
 void MainWindow::applyTheme(bool dark)
 {
+    // Using stylesheets as before
+    QString styleSheetPath = dark ? ":/themes/dark.qss" : ":/themes/light.qss";
+    QFile f(styleSheetPath);
     QString styleSheet = "";
-    if (dark) {
-        // Load dark stylesheet from resources
-        QFile f(":/themes/dark.qss");
-        if (f.open(QFile::ReadOnly | QFile::Text)) {
-            QTextStream ts(&f);
-            styleSheet = ts.readAll();
-            f.close();
-        } else {
-            qWarning() << "Could not load dark theme file :/themes/dark.qss";
-        }
+    if (f.open(QFile::ReadOnly | QFile::Text)) {
+        QTextStream ts(&f);
+        styleSheet = ts.readAll();
+        f.close();
     } else {
-        // Load light stylesheet (could be empty or contain overrides)
-        QFile f(":/themes/light.qss"); // Or just set styleSheet = "";
-        if (f.open(QFile::ReadOnly | QFile::Text)) {
-            QTextStream ts(&f);
-            styleSheet = ts.readAll();
-            f.close();
-        } else {
-            // Okay if light theme is empty/missing, will revert
-        }
+        qWarning() << "Could not load theme file:" << styleSheetPath;
     }
-
-    // Apply the loaded stylesheet globally
     qApp->setStyleSheet(styleSheet);
 
-    // Also explicitly reset palette when switching to light? Optional.
-    // if (!dark) {
-    //     qApp->setPalette(qApp->style()->standardPalette());
-    // }
-
-    // Update the custom widget explicitly
+    // Update custom widget explicitly
     if (ui->curveWidget) {
         ui->curveWidget->setDarkMode(dark);
     }
+    // Force preview update as background might change
+    updateLUTPreview();
 }
 
 
-void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment) {
-    m_selectedNodeIndex = nodeIndex; // Store the selected index
+// Slot for channel selection button group
+void MainWindow::onChannelButtonClicked(QAbstractButton *button)
+{
+    if (!ui->curveWidget) return;
 
-    // Determine if an intermediate node is selected (where alignment matters most)
-    // Need to ask curveWidget for node count if it changed
-    int nodeCount = ui->curveWidget ? ui->curveWidget->getNodes().size() : 0;
+    CurveWidget::ActiveChannel channel = CurveWidget::ActiveChannel::RED; // Default
+
+    if (button == ui->channelRedButton) {
+        channel = CurveWidget::ActiveChannel::RED;
+    } else if (button == ui->channelGreenButton) {
+        channel = CurveWidget::ActiveChannel::GREEN;
+    } else if (button == ui->channelBlueButton) {
+        channel = CurveWidget::ActiveChannel::BLUE;
+    } else {
+        qWarning() << "Unknown button clicked in channel group.";
+        return; // Don't change channel if button is unknown
+    }
+
+    ui->curveWidget->setActiveChannel(channel);
+    // No need to explicitly call updateLUTPreview here, as setActiveChannel triggers
+    // a repaint on CurveWidget, which should emit curveChanged if needed,
+    // but changing channel itself doesn't change curve data.
+    // Let's update the preview explicitly to be sure it reflects the active channel's look.
+    // updateLUTPreview(); // Maybe not needed, depends if preview shows active curve only
+}
+
+
+// Slot connected to CurveWidget::selectionChanged
+void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment) {
+    m_selectedNodeIndex = nodeIndex;
+
+    int nodeCount = 0;
+    if (ui->curveWidget) {
+        // Use the new getter for active node count
+        nodeCount = ui->curveWidget->getActiveNodeCount();
+    }
+
     bool intermediateNodeSelected = (nodeIndex > 0 && nodeIndex < nodeCount - 1);
 
-    // Enable/disable buttons based on selection
-    // Only enable if an intermediate node is selected
     ui->freeBtn->setEnabled(intermediateNodeSelected);
     ui->alignedBtn->setEnabled(intermediateNodeSelected);
     ui->mirroredBtn->setEnabled(intermediateNodeSelected);
 
-    // Update checked state only if enabled
     if (intermediateNodeSelected) {
+        // Block signals temporarily to prevent feedback loops if buttons trigger setNodeAlignment
+        ui->freeBtn->blockSignals(true);
+        ui->alignedBtn->blockSignals(true);
+        ui->mirroredBtn->blockSignals(true);
+
         ui->freeBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Free);
         ui->alignedBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Aligned);
         ui->mirroredBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Mirrored);
+
+        ui->freeBtn->blockSignals(false);
+        ui->alignedBtn->blockSignals(false);
+        ui->mirroredBtn->blockSignals(false);
     } else {
-        // Uncheck all if no intermediate node selected
-        // (If using QButtonGroup, just disabling might be enough, but explicit uncheck is safer)
         ui->freeBtn->setChecked(false);
         ui->alignedBtn->setChecked(false);
         ui->mirroredBtn->setChecked(false);
     }
 }
 
-// Slots for button clicks - call the public slot on curveWidget
+// Slots for alignment button clicks (no change needed)
 void MainWindow::on_freeBtn_clicked() {
-    if (m_selectedNodeIndex != -1) { // Check if a node is selected
+    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
         ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Free);
     }
 }
 
 void MainWindow::on_alignedBtn_clicked() {
-    if (m_selectedNodeIndex != -1) {
+    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
         ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Aligned);
     }
 }
 
 void MainWindow::on_mirroredBtn_clicked() {
-    if (m_selectedNodeIndex != -1) {
+    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
         ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Mirrored);
     }
 }
 
+// Browse button (no change needed)
 void MainWindow::on_browseButton_clicked()
 {
-
     QString currentSuggestion = ui->filePathLineEdit->text();
+    // Suggest png as it's common for LUT images
     QString fileName = QFileDialog::getSaveFileName(this,
-                                                    tr("Save LUT Texture"),       // Dialog Title
-                                                    currentSuggestion,                           // Initial directory (empty means last used or default)
-                                                    tr("Image Files (*.png *.bmp *.jpg);;All Files (*)")); // File filters
+                                                    tr("Save 3D LUT Image"),
+                                                    currentSuggestion,
+                                                    tr("PNG Image (*.png);;All Files (*)"));
 
     if (!fileName.isEmpty()) {
-        // Ensure file has a proper extension if user didn't add one (optional but nice)
+        // Ensure extension is .png if none provided
         QFileInfo info(fileName);
-        if (info.suffix().isEmpty()) {
-            // Check the selected filter or default to png
-            if (info.baseName() == fileName) { // Check if really no extension
-                fileName += ".png"; // Default to png
-            }
+        if (info.suffix().isEmpty() && info.baseName() == fileName) {
+            fileName += ".png";
         }
         ui->filePathLineEdit->setText(fileName);
     }
 }
 
+/**
+ * @brief Slot to update the LUT preview display. Generates a 1D combined RGB LUT image.
+ */
 void MainWindow::updateLUTPreview()
 {
-    // Generate a small image for preview (e.g., 256 wide)
-    // Use the actual spinbox value for correctness, though scaling helps
-    int previewSize = ui->lutSizeComboBox->currentData().toInt(); // Or fixed like 256
-    if (previewSize < 2) previewSize = 2;
-    QImage lutImage = generateLUTImage(previewSize, QImage::Format_Grayscale8);
+    // Use a fixed reasonable width for preview, independent of export setting
+    const int previewWidth = 256;
+    QImage lutImage = generateCombinedRgbLut1D(previewWidth); // Use the new generator
 
     if (!lutImage.isNull()) {
-        // Create a pixmap and scale it to fit the label's width, keeping aspect ratio (sort of, it's 1 pixel high)
         QPixmap lutPixmap = QPixmap::fromImage(lutImage);
 
+        // Scale the 1-pixel high pixmap to fill the preview label(s)
+        // Ignore aspect ratio to stretch the height for visibility
+        ui->lutPreviewLabel->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel->size(),
+                                                        Qt::IgnoreAspectRatio, // Stretch vertically
+                                                        Qt::SmoothTransformation)); // Use smooth scaling
 
-        // Scale pixmap to fit the label width, making it taller for visibility
-        ui->lutPreviewLabel->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel->width(), ui->lutPreviewLabel->height(),
-                                                        Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-        ui->lutPreviewLabel_3->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel_3->width(), ui->lutPreviewLabel_3->height(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+        if (ui->lutPreviewLabel_3) {
+            ui->lutPreviewLabel_3->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel_3->size(),
+                                                              Qt::IgnoreAspectRatio,
+                                                              Qt::SmoothTransformation));
+        }
+
     } else {
-        ui->lutPreviewLabel->clear(); // Clear if image generation failed
-        ui->lutPreviewLabel_3->clear();
+        // Clear preview if generation failed
+        ui->lutPreviewLabel->clear();
+        if (ui->lutPreviewLabel_3) ui->lutPreviewLabel_3->clear();
+        // Optionally display placeholder text/color
+        QPixmap errorPixmap(ui->lutPreviewLabel->size());
+        errorPixmap.fill(Qt::darkGray);
+        QPainter painter(&errorPixmap);
+        painter.setPen(Qt::white);
+        painter.drawText(errorPixmap.rect(), Qt::AlignCenter, "Preview N/A");
+        ui->lutPreviewLabel->setPixmap(errorPixmap);
+
+        if (ui->lutPreviewLabel_3) ui->lutPreviewLabel_3->setPixmap(errorPixmap); // Show in both if exists
     }
 }
-
+/**
+ * @brief Slot called when the export button is clicked. Generates and saves the 1D Combined RGB LUT.
+ */
 void MainWindow::on_exportButton_clicked()
 {
     // 1. Get Parameters
     QString filePath = ui->filePathLineEdit->text();
-    //int lutSize = ui->lutSizeSpinBox->value();
-    int lutSize = ui->lutSizeComboBox->currentData().toInt();
-    // *** Get selected format ***
-    QImage::Format selectedFormat = ui->bitDepthComboBox->currentData().value<QImage::Format>();
+    // Get selected width from the combo box (renamed conceptually)
+    int lutWidth = ui->lutSizeComboBox->currentData().toInt();
 
     // 2. Validate Parameters
     if (filePath.isEmpty()) {
         QMessageBox::warning(this, tr("Export Error"), tr("Please specify an export file path."));
         return;
     }
-    if (lutSize < 2) {
-        QMessageBox::warning(this, tr("Export Error"), tr("LUT size must be at least 2."));
+    if (lutWidth < 2) {
+        QMessageBox::warning(this, tr("Export Error"), tr("LUT width must be at least 2."));
         return;
     }
 
-    // 3. Generate LUT Image
-    QImage lutImage = generateLUTImage(lutSize, selectedFormat);
+    // 3. Generate 1D Combined RGB LUT Image
+    QImage lutImage = generateCombinedRgbLut1D(lutWidth);
     if (lutImage.isNull()) {
-        QMessageBox::critical(this, tr("Export Error"), tr("Failed to generate LUT data."));
+        QMessageBox::critical(this, tr("Export Error"), tr("Failed to generate LUT image data."));
         return;
     }
 
-    // 4. Save Image
-    if (lutImage.save(filePath)) {
-        QMessageBox::information(this, tr("Export Successful"), tr("LUT texture saved to:\n%1").arg(filePath));
+    // 4. Save Image (as PNG)
+    if (lutImage.save(filePath, "PNG")) {
+        QMessageBox::information(this, tr("Export Successful"), tr("Combined RGB LUT image saved to:\n%1").arg(filePath));
     } else {
-        QMessageBox::critical(this, tr("Export Error"), tr("Failed to save LUT texture to:\n%1").arg(filePath));
+        QMessageBox::critical(this, tr("Export Error"), tr("Failed to save LUT image to:\n%1\nCheck permissions and path.").arg(filePath));
     }
 }
 
-// --- Helper Function ---
+/**
+ * @brief Helper function to generate a 1D Combined RGB LUT image.
+ * Creates a width x 1 pixel image in RGB888 format.
+ * @param width - The desired width (resolution) of the LUT texture.
+ * @return The generated QImage, or a null QImage on error.
+ */
+QImage MainWindow::generateCombinedRgbLut1D(int width)
+{
+    if (width < 1 || !ui->curveWidget) { // Allow width=1 case
+        qWarning() << "generateCombinedRgbLut1D: Invalid width or null curveWidget.";
+        return QImage(); // Return null image on error
+    }
 
-// Modify the helper function signature and implementation
-QImage MainWindow::generateLUTImage(int size, QImage::Format format) // Added format parameter
+    // Create the output image: width x 1 pixel, RGB format
+    QImage image(width, 1, QImage::Format_RGB888);
+    if (image.isNull()) {
+        qWarning() << "Failed to create QImage for 1D RGB LUT generation (width:" << width << ")";
+        return QImage();
+    }
+
+    // --- Fill pixel data by sampling the curves at the same time 't' ---
+    for (int i = 0; i < width; ++i) {
+        // Calculate normalized time t [0, 1] from the pixel index i
+        // Handle width=1 case to avoid division by zero.
+        qreal t = (width == 1) ? 0.0 : static_cast<qreal>(i) / (width - 1.0);
+
+        // Sample each channel's curve at this specific time 't'
+        qreal yR_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::RED, t);
+        qreal yG_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::GREEN, t);
+        qreal yB_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::BLUE, t);
+
+        // Clamp results to [0, 1] (should be handled by sampleCurveChannel, but double-check)
+        yR_norm = std::max(0.0, std::min(1.0, yR_norm));
+        yG_norm = std::max(0.0, std::min(1.0, yG_norm));
+        yB_norm = std::max(0.0, std::min(1.0, yB_norm));
+
+        // Convert normalized [0, 1] output to 8-bit [0, 255]
+        uchar outR_byte = static_cast<uchar>(std::round(yR_norm * 255.0));
+        uchar outG_byte = static_cast<uchar>(std::round(yG_norm * 255.0));
+        uchar outB_byte = static_cast<uchar>(std::round(yB_norm * 255.0));
+
+        // Set the pixel color at (i, 0) using the sampled RGB values
+        image.setPixel(i, 0, qRgb(outR_byte, outG_byte, outB_byte));
+    }
+
+    return image;
+}
+
+
+// Reset button clicked - calls reset on the CurveWidget
+void MainWindow::on_resetButton_clicked()
+{
+    if (ui->curveWidget) {
+        ui->curveWidget->resetCurve(); // Resets the *active* curve
+    }
+}
+
+
+// --- Helper Function to generate 3D LUT Image ---
+// Creates a 2D image representing the 3D LUT mapping (HALD-like structure)
+QImage MainWindow::generateLutImage3D(int size)
 {
     if (size < 2 || !ui->curveWidget) {
         return QImage(); // Return null image on error
     }
-    // Check if format is supported
-    if (format != QImage::Format_Grayscale8 && format != QImage::Format_Grayscale16) {
-        qWarning() << "Unsupported format requested for LUT generation:" << format;
-        return QImage();
-    }
 
-    // Create image with the specified format
-    QImage image(size, 1, format);
+    // Create the output image: size*size width, size height, RGB format
+    // Example: size=16 -> 256x16 image
+    // Example: size=32 -> 1024x32 image
+    QImage image(size * size, size, QImage::Format_RGB888);
     if (image.isNull()) {
-        qWarning() << "Failed to create QImage for LUT with format:" << format;
+        qWarning() << "Failed to create QImage for 3D LUT generation (size:" << size << ")";
         return QImage();
     }
+    image.fill(Qt::black); // Start with black background
 
-    // --- Fill pixel data based on format ---
-    if (format == QImage::Format_Grayscale8) {
-        uchar *line = image.scanLine(0); // Pointer to 8-bit data
-        for (int i = 0; i < size; ++i) {
-            qreal x = static_cast<qreal>(i) / (size - 1.0);
-            qreal y = ui->curveWidget->sampleCurve(x);
-            y = std::max(0.0, std::min(1.0, y)); // Clamp 0-1
-            // Convert 0.0-1.0 to 0-255
-            line[i] = static_cast<uchar>(std::round(y * 255.0));
-        }
-    } else { // Must be QImage::Format_Grayscale16
-        // scanLine still returns uchar*, but points to 16-bit (quint16) data
-        quint16 *line = reinterpret_cast<quint16*>(image.scanLine(0));
-        for (int i = 0; i < size; ++i) {
-            qreal x = static_cast<qreal>(i) / (size - 1.0);
-            qreal y = ui->curveWidget->sampleCurve(x);
-            y = std::max(0.0, std::min(1.0, y)); // Clamp 0-1
-            // Convert 0.0-1.0 to 0-65535
-            line[i] = static_cast<quint16>(std::round(y * 65535.0));
+    // --- Fill pixel data by sampling the curves ---
+    for (int b = 0; b < size; ++b) { // Blue axis loop (maps to Y pixel coordinate)
+        quint8* line = image.scanLine(b); // Get pointer to the start of row 'b'
+
+        for (int g = 0; g < size; ++g) { // Green axis loop
+            for (int r = 0; r < size; ++r) { // Red axis loop
+
+                // Calculate normalized input coordinates [0, 1]
+                qreal inputR = static_cast<qreal>(r) / (size - 1.0);
+                qreal inputG = static_cast<qreal>(g) / (size - 1.0);
+                qreal inputB = static_cast<qreal>(b) / (size - 1.0);
+
+                // Sample each channel's curve using its corresponding input value
+                qreal outputR_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::RED, inputR);
+                qreal outputG_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::GREEN, inputG);
+                qreal outputB_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::BLUE, inputB);
+
+                // Clamp results just in case sampling goes slightly out of bounds
+                outputR_norm = std::max(0.0, std::min(1.0, outputR_norm));
+                outputG_norm = std::max(0.0, std::min(1.0, outputG_norm));
+                outputB_norm = std::max(0.0, std::min(1.0, outputB_norm));
+
+                // Convert normalized [0, 1] output to 8-bit [0, 255]
+                uchar outR_byte = static_cast<uchar>(std::round(outputR_norm * 255.0));
+                uchar outG_byte = static_cast<uchar>(std::round(outputG_norm * 255.0));
+                uchar outB_byte = static_cast<uchar>(std::round(outputB_norm * 255.0));
+
+                // Calculate the X pixel coordinate in the current row (scanline)
+                // HALD layout: x = r + g * size
+                int px = r + g * size;
+
+                // Calculate the offset within the scanline (3 bytes per pixel for RGB888)
+                int offset = px * 3;
+
+                // Write the RGB bytes to the scanline data
+                // Order is R, G, B for Format_RGB888
+                line[offset + 0] = outR_byte; // Red
+                line[offset + 1] = outG_byte; // Green
+                line[offset + 2] = outB_byte; // Blue
+            }
         }
     }
 
@@ -372,16 +454,12 @@ QImage MainWindow::generateLUTImage(int size, QImage::Format format) // Added fo
 }
 
 
-void MainWindow::on_resetButton_clicked()
-{
-    // Check if the curveWidget pointer is valid (it should be)
-    if (ui->curveWidget) {
-        ui->curveWidget->resetCurve(); // Call the reset function on the widget instance
-    }
-}
-
-
+// --- Old modeBtn slot (keep if you still have this button) ---
+// If modeBtn was just for toggling dark mode, on_actionToggleDarkMode_toggled handles it.
+// Remove this if modeBtn is removed or repurposed.
 void MainWindow::on_modeBtn_clicked(bool checked)
 {
-    applyTheme(checked);
+    // Assuming this button is intended to toggle dark mode like the action
+    ui->actionToggleDarkMode->setChecked(checked);
+    // applyTheme(checked); // applyTheme is called by action's toggled signal
 }

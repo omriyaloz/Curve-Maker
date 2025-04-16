@@ -175,26 +175,30 @@
            </item>
            <item row="3" column="0">
             <layout class="QGridLayout" name="gridLayout_2">
-             <item row="1" column="0">
-              <widget class="QPushButton" name="freeBtn">
+             <item row="7" column="0">
+              <widget class="QPushButton" name="alignedBtn">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="styleSheet">
-                <string notr="true"/>
-               </property>
                <property name="text">
-                <string>Free</string>
+                <string>Aligned</string>
                </property>
                <property name="checkable">
                 <bool>true</bool>
                </property>
               </widget>
              </item>
-             <item row="4" column="0">
+             <item row="0" column="0">
+              <widget class="QRadioButton" name="channelRedButton">
+               <property name="text">
+                <string>Red</string>
+               </property>
+              </widget>
+             </item>
+             <item row="9" column="0">
               <widget class="QPushButton" name="mirroredBtn">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
@@ -210,7 +214,7 @@
                </property>
               </widget>
              </item>
-             <item row="0" column="0">
+             <item row="5" column="0">
               <widget class="QLabel" name="handleTypeLbl">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
@@ -234,18 +238,35 @@
               </widget>
              </item>
              <item row="2" column="0">
-              <widget class="QPushButton" name="alignedBtn">
+              <widget class="QRadioButton" name="channelBlueButton">
+               <property name="text">
+                <string>Blue</string>
+               </property>
+              </widget>
+             </item>
+             <item row="6" column="0">
+              <widget class="QPushButton" name="freeBtn">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
+               <property name="styleSheet">
+                <string notr="true"/>
+               </property>
                <property name="text">
-                <string>Aligned</string>
+                <string>Free</string>
                </property>
                <property name="checkable">
                 <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QRadioButton" name="channelGreenButton">
+               <property name="text">
+                <string>Green</string>
                </property>
               </widget>
              </item>
