@@ -1,69 +1,38 @@
 #include "curvewidget.h"
-#include "setcurvestatecommand.h"
+#include "setcurvestatecommand.h" // Include the command header (ensure it's for single state)
+
 #include <QPainter>
 #include <QPen>
 #include <QBrush>
 #include <QPainterPath>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QPalette>        // Included for paintEvent palette access
+#include <QtMath>          // For qSqrt
 #include <QtCore/qnumeric.h> // For qFuzzyCompare
 #include <algorithm>       // For std::sort, std::max, std::min
-#include <cmath>           // For std::max, std::min, std::pow
-#include <limits> // Required for std::numeric_limits
-#include <QKeyEvent>
-#include <QtMath>
+#include <cmath>           // For std::max, std::min
+#include <limits>          // For std::numeric_limits
+#include <QDebug>          // For logging
 
+// --- Anonymous Namespace for Local File Helpers ---
+namespace {
 
-CurveWidget::CurveNode::CurveNode(QPointF p) // <<< Use CurveWidget::CurveNode::
-    : mainPoint(p),
-    handleIn(p),
-    handleOut(p),
-    // Use unqualified name here - we are effectively inside CurveWidget scope
-    alignment(HandleAlignment::Aligned)
-{}
-
-
-
-
-// Constructor
-CurveWidget::CurveWidget(QWidget *parent)
-    : QWidget(parent), m_dragging(false)
-{
-
-    // Initialize with a default straight line using two nodes
-    CurveNode node0(QPointF(0.0, 0.0));
-    CurveNode node1(QPointF(1.0, 1.0));
-
-    // Place handles to create an initial straight line (1/3rd along segment)
-    // Note: handleIn for node0 and handleOut for node1 are not used for drawing
-    // but we initialize them relative to their main point.
-    node0.handleOut = QPointF(1.0/3.0, 1.0/3.0); // Outgoing handle for segment 0
-    node1.handleIn  = QPointF(2.0/3.0, 2.0/3.0); // Incoming handle for segment 0
-
-    m_nodes.append(node0);
-    m_nodes.append(node1);
-
-    m_samplesDirty = true; // Mark samples needing update
-
-    setMinimumSize(200, 200);
-    setFocusPolicy(Qt::ClickFocus);
-    setAutoFillBackground(true);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, Qt::darkGray);
-    setPalette(pal);
-
-    setFocusPolicy(Qt::ClickFocus);
-    setAutoFillBackground(true);
-}
-
-// --- Public Accessors ---
-
-// Linear interpolation between two points
+/**
+ * @brief Linearly interpolates between two points.
+ * @param a - Start point.
+ * @param b - End point.
+ * @param t - Interpolation factor (0.0 to 1.0).
+ * @return Interpolated point.
+ */
 inline QPointF lerp(const QPointF& a, const QPointF& b, qreal t) {
     return a * (1.0 - t) + b * t;
 }
 
-
-
-// Structure to hold the results of De Casteljau subdivision
+/**
+ * @brief Structure to hold the results of De Casteljau subdivision.
+ */
 struct SubdivisionResult {
     QPointF pointOnCurve; // P_new (main point for the new node)
     QPointF handle1_Seg1; // P01   (becomes handleOut for node i)
@@ -72,88 +41,293 @@ struct SubdivisionResult {
     QPointF handle2_Seg2; // P23   (becomes handleIn for node i+1)
 };
 
-// De Casteljau subdivision function
+/**
+ * @brief Subdivides a cubic Bézier segment at parameter t using De Casteljau algorithm.
+ * @param p0 - Start point of the segment.
+ * @param p1 - First control point (outgoing handle of start).
+ * @param p2 - Second control point (incoming handle of end).
+ * @param p3 - End point of the segment.
+ * @param t - Parameter value (0.0 to 1.0) at which to subdivide.
+ * @return SubdivisionResult containing the new point and handles.
+ */
 SubdivisionResult subdivideBezier(const QPointF& p0, const QPointF& p1, const QPointF& p2, const QPointF& p3, qreal t) {
     SubdivisionResult result;
     QPointF p01 = lerp(p0, p1, t);
     QPointF p12 = lerp(p1, p2, t);
     QPointF p23 = lerp(p2, p3, t);
-    result.handle1_Seg1 = p01; // = H1_new0
-    result.handle2_Seg2 = p23; // = H2_new1
-    result.handle2_Seg1 = lerp(p01, p12, t); // = H2_new0 = newNode.handleIn
-    result.handle1_Seg2 = lerp(p12, p23, t); // = H1_new1 = newNode.handleOut
-    result.pointOnCurve = lerp(result.handle2_Seg1, result.handle1_Seg2, t); // = P_new
+    result.handle1_Seg1 = p01;
+    result.handle2_Seg2 = p23;
+    result.handle2_Seg1 = lerp(p01, p12, t);
+    result.handle1_Seg2 = lerp(p12, p23, t);
+    result.pointOnCurve = lerp(result.handle2_Seg1, result.handle1_Seg2, t);
     return result;
 }
 
-QVector<CurveWidget::CurveNode> CurveWidget::getNodes() const {
-    return m_nodes; // Return a copy
+/**
+ * @brief Evaluates a cubic Bézier segment at parameter t.
+ * @param p0 - Start point.
+ * @param p1 - Control point 1.
+ * @param p2 - Control point 2.
+ * @param p3 - End point.
+ * @param t - Parameter (0.0 to 1.0).
+ * @return Point on the curve at parameter t.
+ */
+QPointF evaluateBezier(const QPointF& p0, const QPointF& p1, const QPointF& p2, const QPointF& p3, qreal t) {
+    qreal mt = 1.0 - t;
+    qreal mt2 = mt * mt;
+    qreal t2 = t * t;
+    return p0 * mt * mt2 + p1 * 3.0 * mt2 * t + p2 * 3.0 * mt * t2 + p3 * t * t2;
 }
 
-// Sample the curve at X using pre-calculated samples and linear interpolation
+} // End anonymous namespace
+
+
+// --- CurveNode Implementation ---
+
+/**
+ * @brief Constructor for CurveNode. Initializes handles coincident with the main point.
+ * @param p - Initial position for the main point.
+ */
+CurveWidget::CurveNode::CurveNode(QPointF p)
+    : mainPoint(p),
+    handleIn(p),
+    handleOut(p),
+    alignment(HandleAlignment::Aligned) // Default alignment mode
+{}
+
+/**
+ * @brief Equality operator for comparing CurveNode states (used by Undo).
+ * @param other - The CurveNode to compare against.
+ * @return True if all members are equal, false otherwise.
+ */
+bool CurveWidget::CurveNode::operator==(const CurveNode& other) const {
+    return mainPoint == other.mainPoint &&
+           handleIn == other.handleIn &&
+           handleOut == other.handleOut &&
+           alignment == other.alignment;
+}
+
+
+// --- CurveWidget Constructor ---
+
+/**
+ * @brief Constructor for CurveWidget.
+ * @param parent - Parent widget.
+ */
+CurveWidget::CurveWidget(QWidget *parent)
+    : QWidget(parent),
+    m_dragging(false),
+    m_isDarkMode(false), // Default to light mode unless set otherwise
+    m_selection({SelectedPart::NONE, -1}), // Initialize selection
+    m_samplesDirty(true),
+    m_mainPointRadius(5.0), // Default radii - consider making these configurable
+    m_handleRadius(4.0),
+    m_numSamples(256)
+{
+    // Initialize with a default straight line curve
+    CurveNode node0(QPointF(0.0, 0.0));
+    CurveNode node1(QPointF(1.0, 1.0));
+    node0.handleOut = QPointF(1.0/3.0, 1.0/3.0); // Initial straight line handles
+    node1.handleIn  = QPointF(2.0/3.0, 2.0/3.0);
+    m_nodes << node0 << node1; // Use the single m_nodes vector
+
+    setMinimumSize(200, 200);
+    setFocusPolicy(Qt::ClickFocus); // Allow widget to receive keyboard focus on click
+    setAutoFillBackground(true);   // Required for QSS/Palette background to work reliably
+    // NOTE: Theme/Palette should be controlled by MainWindow/QApplication
+}
+
+
+// --- Public Methods ---
+
+/**
+ * @brief Gets a copy of the current curve nodes.
+ * @return QVector containing the curve nodes.
+ */
+QVector<CurveWidget::CurveNode> CurveWidget::getNodes() const {
+    return m_nodes;
+}
+
+/**
+ * @brief Samples the curve's Y value at a given X value using cached approximation.
+ * @param x - The X-coordinate (0.0 to 1.0) to sample.
+ * @return Approximate Y-coordinate (0.0 to 1.0).
+ */
 qreal CurveWidget::sampleCurve(qreal x) const {
     if (m_samplesDirty) {
-        updateCurveSamples();
+        updateCurveSamples(); // Update cache if needed
     }
+    if (m_curveSamples.isEmpty()) return 0.0;
 
-    if (m_curveSamples.isEmpty()) return 0.0; // Should not happen if initialized
+    // Clamp x to the valid range of *cached* samples X values
+    // Note: Cache X values might not perfectly align with node X values due to Bezier nature
+    x = std::max((m_curveSamples.isEmpty() ? 0.0 : m_curveSamples.first().x()),
+                 std::min((m_curveSamples.isEmpty() ? 1.0 : m_curveSamples.last().x()), x));
 
-    // Clamp x to the valid range of samples
-    x = std::max(m_curveSamples.first().x(), std::min(m_curveSamples.last().x(), x));
 
-    // Find the segment in the sample table where x lies
-    // (Using std::lower_bound assumes samples are sorted by x, which they should be)
+    // Find segment in sample table using lower_bound
     auto it = std::lower_bound(m_curveSamples.constBegin(), m_curveSamples.constEnd(), x,
                                [](const QPointF& point, qreal xVal) {
                                    return point.x() < xVal;
                                });
 
-    // Handle edge cases or if lower_bound returns end()
-    if (it == m_curveSamples.constBegin()) {
-        return m_curveSamples.first().y();
-    }
-    if (it == m_curveSamples.constEnd()) {
-        return m_curveSamples.last().y();
-    }
+    if (it == m_curveSamples.constBegin()) return m_curveSamples.first().y();
+    // lower_bound returns iterator to first element NOT LESS than x.
+    // If x is >= last element, it returns end().
+    if (it == m_curveSamples.constEnd()) return m_curveSamples.last().y();
 
-    // Linear interpolation between the two samples surrounding x
-    const QPointF& p2 = *it;
-    const QPointF& p1 = *(it - 1);
+    // Linear interpolation between the two cache samples surrounding x
+    const QPointF& p2 = *it;     // The sample at or after x
+    const QPointF& p1 = *(it - 1); // The sample before x
 
-    if (qFuzzyIsNull(p2.x() - p1.x())) { // Avoid division by zero if x values are identical
+    // Avoid division by zero if cached points have same x
+    if (qFuzzyCompare(p1.x(), p2.x())) {
         return p1.y();
     }
 
     qreal t = (x - p1.x()) / (p2.x() - p1.x());
-    return p1.y() * (1.0 - t) + p2.y() * t;
+    // Clamp t just in case due to floating point inaccuracies near ends
+    t = std::max(0.0, std::min(1.0, t));
+
+    return lerp(p1, p2, t).y(); // Use global helper
 }
 
-// --- Event Handlers ---
+/**
+ * @brief (Retained from RGB) Samples a specific channel (now just calls internal sampler on m_nodes).
+ * @param channel - The channel to sample (ignored in this version).
+ * @param x - X-coordinate (0.0 to 1.0).
+ * @return Approximate Y-coordinate (0.0 to 1.0).
+ */
+qreal CurveWidget::sampleCurveChannel(ActiveChannel channel, qreal x) const {
+    Q_UNUSED(channel); // Mark as unused in this single-channel version
+    // Uses the internal helper which currently does linear interpolation.
+    return sampleCurveInternal(m_nodes, x);
+}
 
-void CurveWidget::paintEvent(QPaintEvent *event)
-{
+/**
+ * @brief Resets the curve to its default state (straight line 0,0 to 1,1).
+ * This action is undoable.
+ */
+void CurveWidget::resetCurve() {
+    // Capture state BEFORE reset for Undo
+    m_stateBeforeAction = m_nodes; // Capture single vector state
+
+    m_nodes.clear(); // Clear the single node vector
+
+    // Re-initialize with default nodes
+    CurveNode node0(QPointF(0.0, 0.0));
+    CurveNode node1(QPointF(1.0, 1.0));
+    node0.handleOut = QPointF(1.0/3.0, 1.0/3.0);
+    node1.handleIn  = QPointF(2.0/3.0, 2.0/3.0);
+    m_nodes << node0 << node1;
+
+    // Push command only if state actually changed
+    if (m_stateBeforeAction != m_nodes) {
+        // Push command with single old/new state vectors
+        m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Reset Curve"));
+    } else {
+        m_stateBeforeAction.clear();
+    }
+
+    // Update internal state and UI
+    m_samplesDirty = true;
+    m_selection = {SelectedPart::NONE, -1};
+    m_dragging = false;
+    update();
+    emit curveChanged();
+    emit selectionChanged(-1, HandleAlignment::Free); // Emit deselection
+}
+
+/**
+ * @brief Sets the dark mode flag to adjust drawing colors.
+ * @param dark - True to enable dark mode colors, false for light mode.
+ */
+void CurveWidget::setDarkMode(bool dark) {
+    if (m_isDarkMode != dark) {
+        m_isDarkMode = dark;
+        update(); // Trigger repaint to use new colors
+    }
+}
+
+// --- Public Slots ---
+
+/**
+ * @brief Sets the handle alignment mode for a specific node. Undoable.
+ * @param nodeIndex - Index of the node to modify.
+ * @param mode - The new HandleAlignment mode.
+ */
+void CurveWidget::setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode) {
+    // Check bounds using the single m_nodes vector
+    if (nodeIndex < 0 || nodeIndex >= m_nodes.size()) {
+        qWarning() << "setNodeAlignment: Invalid index" << nodeIndex;
+        return;
+    }
+
+    CurveNode& node = m_nodes[nodeIndex]; // Get reference from m_nodes
+    if (node.alignment != mode) {
+        // Action will happen, prepare for Undo
+        m_stateBeforeAction = m_nodes; // Capture state BEFORE change
+
+        node.alignment = mode; // Apply the new mode
+        applyAlignmentSnap(nodeIndex); // Apply snap logic AFTER setting mode
+
+        // Push command only if state actually changed
+        if (m_stateBeforeAction != m_nodes) {
+            // Push command with single old/new state vectors
+            m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
+        } else {
+            m_stateBeforeAction.clear();
+        }
+
+        // Update state and UI
+        m_samplesDirty = true;
+        update();
+        emit curveChanged();
+        emit selectionChanged(nodeIndex, mode); // Update button states in MainWindow
+    }
+}
+
+/**
+ * @brief (Retained from RGB) Sets the currently active channel (does nothing now).
+ * @param channel - The channel to activate.
+ */
+void CurveWidget::setActiveChannel(CurveWidget::ActiveChannel channel) {
+    Q_UNUSED(channel);
+    // In single channel mode, this function has no effect.
+    // qDebug() << "setActiveChannel called, but widget is in single-channel mode.";
+}
+
+
+// --- Protected Event Handlers ---
+
+/**
+ * @brief Handles painting the widget. Draws grid, curve, nodes, and handles.
+ * Uses m_isDarkMode to select appropriate colors.
+ * @param event - Paint event details.
+ */
+void CurveWidget::paintEvent(QPaintEvent *event) {
     Q_UNUSED(event);
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    const QPalette& pal = this->palette(); // Use the widget's own palette
+    // Define Colors based on Dark/Light Mode
+    QColor gridColor, borderColor, handleLineColor, handleColor, mainPointColor, outlineColor;
+    QColor curveColor;
+    QColor selectionColor = Qt::yellow;
 
-    // --- Define Colors based on m_isDarkMode flag ---
-    // You can still use palette for *some* base colors if desired,
-    // but explicitly defining sets might be clearer now.
-    QColor bgColor = m_isDarkMode ? QColor(53, 53, 53) : QColor(240, 240, 240); // Example dark/light BG
-    QColor gridColor = m_isDarkMode ? QColor(80, 80, 80) : QColor(210, 210, 210);
-    QColor curveColor = m_isDarkMode ? QColor(230, 230, 230) : QColor(10, 10, 10); // Light curve on dark, dark on light
-    QColor mainPointColor = curveColor; // Use same as curve
-    QColor handleColor = m_isDarkMode ? QColor(0, 180, 180) : QColor(0, 100, 100); // Cyan variations
-    QColor handleLineColor = gridColor.darker(120);
-    QColor selectionColor = Qt::yellow; // Keep selection yellow
-    QColor borderColor = gridColor;
+    if (m_isDarkMode) {
+        gridColor = QColor(80, 80, 80); borderColor = QColor(90, 90, 90);
+        handleLineColor = QColor(100, 100, 100); handleColor = QColor(0, 190, 190);
+        mainPointColor = QColor(230, 230, 230); outlineColor = Qt::black;
+        curveColor = QColor(240, 240, 240);
+    } else { // Light Mode
+        gridColor = QColor(210, 210, 210); borderColor = QColor(180, 180, 180);
+        handleLineColor = QColor(140, 140, 140); handleColor = QColor(0, 100, 100);
+        mainPointColor = QColor(10, 10, 10); outlineColor = Qt::darkGray;
+        curveColor = QColor(10, 10, 10);
+    }
 
-    // Set background - RECOMMENDED: Set autoFillBackground=true and set Window role in palette instead
-    // painter.fillRect(rect(), bgColor); // Manual background fill (alternative)
-
-    // --- Draw Grid ---
+    // Draw Grid & Border
     painter.setPen(QPen(gridColor, 0.5));
     int numGridLines = 10;
     for (int i = 1; i < numGridLines; ++i) {
@@ -164,159 +338,134 @@ void CurveWidget::paintEvent(QPaintEvent *event)
     painter.setPen(QPen(borderColor, 1));
     painter.drawRect(rect().adjusted(0, 0, -1, -1));
 
-    if (m_nodes.size() < 2) return; // Need at least two nodes to draw a curve
-
-    // --- Draw Bézier Curve Segments ---
+    // Draw Curve
+    if (m_nodes.size() < 2) return;
     QPainterPath curvePath;
     curvePath.moveTo(mapToWidget(m_nodes[0].mainPoint));
     for (int i = 0; i < m_nodes.size() - 1; ++i) {
-        const CurveNode& node0 = m_nodes[i];
-        const CurveNode& node1 = m_nodes[i+1];
-        QPointF p0_widget;
-        QPointF p1_widget = mapToWidget(node0.handleOut); // Outgoing handle from start node
-        QPointF p2_widget = mapToWidget(node1.handleIn);  // Incoming handle to end node
-        QPointF p3_widget = mapToWidget(node1.mainPoint);
-        curvePath.cubicTo(p1_widget, p2_widget, p3_widget);
+        curvePath.cubicTo(mapToWidget(m_nodes[i].handleOut),
+                          mapToWidget(m_nodes[i+1].handleIn),
+                          mapToWidget(m_nodes[i+1].mainPoint));
     }
     painter.setPen(QPen(curveColor, 2));
     painter.drawPath(curvePath);
 
-    // --- Draw Nodes and Handles ---
+    // Draw Nodes and Handles
     for (int i = 0; i < m_nodes.size(); ++i) {
         const CurveNode& node = m_nodes[i];
         QPointF mainWidgetPos = mapToWidget(node.mainPoint);
-        QPointF handleInWidgetPos = mapToWidget(node.handleIn);
-        QPointF handleOutWidgetPos = mapToWidget(node.handleOut);
-
         // Draw Handle Lines
-        painter.setPen(QPen(handleLineColor, 1)); // Use palette color
-        if (i > 0) painter.drawLine(mainWidgetPos, handleInWidgetPos);
-        if (i < m_nodes.size() - 1) painter.drawLine(mainWidgetPos, handleOutWidgetPos);
-
+        painter.setPen(QPen(handleLineColor, 1));
+        if (i > 0) painter.drawLine(mainWidgetPos, mapToWidget(node.handleIn));
+        if (i < m_nodes.size() - 1) painter.drawLine(mainWidgetPos, mapToWidget(node.handleOut));
         // Draw Handles
-        painter.setPen(QPen(bgColor.lighter(110), 0.5));
+        painter.setPen(QPen(outlineColor, 0.5));
         if (i > 0) { // Handle In
-            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_IN && m_selection.nodeIndex == i) ? selectionColor : handleColor);
-            painter.drawEllipse(handleInWidgetPos, m_handleRadius, m_handleRadius);
+            bool isSelected = (m_selection.part == SelectedPart::HANDLE_IN && m_selection.nodeIndex == i);
+            painter.setBrush(isSelected ? selectionColor : handleColor);
+            painter.drawEllipse(mapToWidget(node.handleIn), m_handleRadius, m_handleRadius);
         }
         if (i < m_nodes.size() - 1) { // Handle Out
-            painter.setBrush( (m_selection.part == SelectedPart::HANDLE_OUT && m_selection.nodeIndex == i) ? selectionColor : handleColor);
-            painter.drawEllipse(handleOutWidgetPos, m_handleRadius, m_handleRadius);
+            bool isSelected = (m_selection.part == SelectedPart::HANDLE_OUT && m_selection.nodeIndex == i);
+            painter.setBrush(isSelected ? selectionColor : handleColor);
+            painter.drawEllipse(mapToWidget(node.handleOut), m_handleRadius, m_handleRadius);
         }
-
         // Draw Main Point
-        painter.setPen(QPen(bgColor.lighter(110), 1)); // Black outline for main point
-        painter.setBrush( (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex == i) ? selectionColor : mainPointColor); // Use palette color
+        painter.setPen(QPen(outlineColor, 1));
+        bool isMainSelected = (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex == i);
+        painter.setBrush(isMainSelected ? selectionColor : mainPointColor);
         painter.drawEllipse(mainWidgetPos, m_mainPointRadius, m_mainPointRadius);
     }
 }
 
-
+/**
+ * @brief Handles mouse button press events. Selects points/handles,
+ * initiates dragging, adds nodes, or deletes nodes. Manages state capture for Undo.
+ * @param event - Mouse event details.
+ */
 void CurveWidget::mousePressEvent(QMouseEvent *event)
 {
     SelectionInfo oldSelection = m_selection;
-    m_selection = findNearbyPart(event->pos());
+    m_selection = findNearbyPart(event->pos()); // Uses m_nodes internally
     m_dragging = (m_selection.part != SelectedPart::NONE);
-    if (m_dragging) {
-        m_stateBeforeAction = m_nodes; // Store state BEFORE drag
-    }
+    m_stateBeforeAction.clear(); // Clear previous stored state
 
-    // Emit Signal on Selection Change
+    // Emit selection change signal if necessary
     if (m_selection.nodeIndex != oldSelection.nodeIndex || m_selection.part != oldSelection.part) {
         if (m_selection.part != SelectedPart::NONE) {
-            // Make sure index is valid before accessing node alignment
-            if(m_selection.nodeIndex >= 0 && m_selection.nodeIndex < m_nodes.size()) {
+            if (m_selection.nodeIndex >= 0 && m_selection.nodeIndex < m_nodes.size()) { // Check m_nodes size
                 emit selectionChanged(m_selection.nodeIndex, m_nodes[m_selection.nodeIndex].alignment);
-            } else { // Should not happen if findNearbyPart is correct, but safety check
-                emit selectionChanged(-1, HandleAlignment::Free);
-            }
-        } else {
-            emit selectionChanged(-1, HandleAlignment::Free); // Indicate no selection
-        }
+            } else { m_selection = {SelectedPart::NONE, -1}; m_dragging = false; emit selectionChanged(-1, HandleAlignment::Free); }
+        } else { emit selectionChanged(-1, HandleAlignment::Free); }
     }
 
-    // --- Handle Left Button Click (Adding/Selecting) ---
+    // Handle Left Button
     if (event->button() == Qt::LeftButton) {
-        if (m_dragging) {
-            // Point selected, ready for drag (no action needed here)
-        } else {
-            // Add New Node using Curve Splitting
-            m_stateBeforeAction = m_nodes;
-            ClosestSegmentResult hit = findClosestSegment(event->pos());
+        if (m_dragging) { // Started drag on existing part
+            m_stateBeforeAction = m_nodes; // Store state BEFORE drag
+        } else { // Add New Node
+            m_stateBeforeAction = m_nodes; // Store state BEFORE add attempt
+            ClosestSegmentResult hit = findClosestSegment(event->pos()); // Uses m_nodes
             const qreal t_tolerance = 0.001;
             if (hit.segmentIndex != -1 && hit.t > t_tolerance && hit.t < (1.0 - t_tolerance)) {
-                int i = hit.segmentIndex;
-                qreal t = hit.t;
-                const QPointF p0 = m_nodes[i].mainPoint; // Use existing nodes directly
-                const QPointF p1 = m_nodes[i].handleOut;
-                const QPointF p2 = m_nodes[i+1].handleIn;
-                const QPointF p3 = m_nodes[i+1].mainPoint;
+                int i = hit.segmentIndex; qreal t = hit.t;
+                if (i < 0 || i >= m_nodes.size() - 1) { m_stateBeforeAction.clear(); return; } // Bounds check
+                const QPointF p0 = m_nodes[i].mainPoint; const QPointF p1 = m_nodes[i].handleOut;
+                const QPointF p2 = m_nodes[i+1].handleIn; const QPointF p3 = m_nodes[i+1].mainPoint;
+                SubdivisionResult split = subdivideBezier(p0, p1, p2, p3, t); // Use helper
+                CurveNode newNode(split.pointOnCurve);
+                newNode.handleIn = split.handle2_Seg1; newNode.handleOut = split.handle1_Seg2;
+                m_nodes[i].handleOut = split.handle1_Seg1; m_nodes[i+1].handleIn = split.handle2_Seg2;
+                m_nodes.insert(i + 1, newNode); // Modify m_nodes directly
 
-
-                SubdivisionResult split = subdivideBezier(p0, p1, p2, p3, t);
-                CurveNode newNode(split.pointOnCurve); // Constructor sets default alignment
-                newNode.handleIn = split.handle2_Seg1;
-                newNode.handleOut = split.handle1_Seg2;
-                m_nodes[i].handleOut = split.handle1_Seg1;
-                m_nodes[i+1].handleIn = split.handle2_Seg2;
-
-                m_nodes.insert(i + 1, newNode);
-
-                if(m_stateBeforeAction != m_nodes) {
+                if (m_stateBeforeAction != m_nodes) { // Push Undo command if state changed
                     m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Add Node"));
                 }
-                m_samplesDirty = true;
-                m_selection = {SelectedPart::MAIN_POINT, i + 1}; // Select new node
-                m_dragging = true;
-                update();
-                emit curveChanged();
-                // Emit selection changed for the newly added node
-                emit selectionChanged(m_selection.nodeIndex, newNode.alignment);
-            } else {
-                m_stateBeforeAction.clear(); // No action started
-            }
+                m_samplesDirty = true; m_selection = {SelectedPart::MAIN_POINT, i + 1}; m_dragging = true; // Don't start drag
+                update(); emit curveChanged(); emit selectionChanged(m_selection.nodeIndex, newNode.alignment);
+            } else { m_stateBeforeAction.clear(); } // No add action occurred
         }
-        // --- Handle Right Button Click (Deleting) ---
+        // Handle Right Button (Delete)
     } else if (event->button() == Qt::RightButton) {
-        if (m_selection.part == SelectedPart::MAIN_POINT &&
-            m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1)
-        {
+        if (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1) { // Use m_nodes size
+            m_stateBeforeAction = m_nodes; // Store state BEFORE delete
             int deletedIndex = m_selection.nodeIndex;
-            m_nodes.remove(deletedIndex);
-            m_selection = {SelectedPart::NONE, -1}; // Reset selection
-            m_dragging = false;
-            m_samplesDirty = true;
-            update();
-            emit curveChanged();
-            emit selectionChanged(-1, HandleAlignment::Free); // Emit deselection
-        }
+            m_nodes.remove(deletedIndex); // Modify m_nodes directly
+
+            if (m_stateBeforeAction != m_nodes) { // Push Undo command
+                m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Delete Node"));
+            }
+            m_selection = {SelectedPart::NONE, -1}; m_dragging = false; m_samplesDirty = true;
+            update(); emit curveChanged(); emit selectionChanged(-1, HandleAlignment::Free);
+        } else { m_stateBeforeAction.clear(); } // No delete action occurred
+    } else { // Other mouse button
+        m_stateBeforeAction.clear();
     }
 }
+
+/**
+ * @brief Handles mouse move events. Updates position of dragged point/handle
+ * and applies alignment constraints. This action is part of an undoable sequence.
+ * @param event - Mouse event details.
+ */
 void CurveWidget::mouseMoveEvent(QMouseEvent *event)
 {
     if (!m_dragging || m_selection.part == SelectedPart::NONE) return;
+    if (m_selection.nodeIndex < 0 || m_selection.nodeIndex >= m_nodes.size()) return; // Check bounds
 
     QPointF logicalPos = mapFromWidget(event->pos());
-    CurveNode& node = m_nodes[m_selection.nodeIndex];
+    CurveNode& node = m_nodes[m_selection.nodeIndex]; // Operate on single m_nodes vector
     QPointF* pointToMove = nullptr;
     QPointF* oppositeHandle = nullptr;
     SelectedPart movedPart = m_selection.part;
+    qreal newX = logicalPos.x(); qreal newY = logicalPos.y();
+    newY = std::max(0.0, std::min(1.0, newY)); // Clamp Y
 
-
-    // Clamp position differently based on what's selected
-    qreal newX = logicalPos.x();
-    qreal newY = logicalPos.y();
-
-    // Clamp Y universally for now
-    newY = std::max(0.0, std::min(1.0, newY));
-
-    // Get pointer to the point being moved
-    // Determine pointToMove and oppositeHandle (same as before)
+    // Determine pointToMove and oppositeHandle
     switch(movedPart) {
-    // ... (cases for MAIN_POINT, HANDLE_IN, HANDLE_OUT setting pointToMove and oppositeHandle) ...
     case SelectedPart::MAIN_POINT:
         pointToMove = &node.mainPoint;
-        { /* ... X clamping for main point ... */
+        { // X clamping for main point
             const qreal epsilon = 1e-6;
             if (m_selection.nodeIndex == 0) newX = 0.0;
             else if (m_selection.nodeIndex == m_nodes.size() - 1) newX = 1.0;
@@ -344,199 +493,380 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
     case SelectedPart::NONE: return;
     }
 
-
-
-    // --- Actually move the point ---
     QPointF oldPos = *pointToMove;
-    pointToMove->setX(newX);
-    pointToMove->setY(newY);
-    QPointF delta = *pointToMove - oldPos; // Calculate how much it moved
+    pointToMove->setX(newX); pointToMove->setY(newY);
+    QPointF delta = *pointToMove - oldPos;
 
-
-    // --- Handle Constraints/Auto-movement (VERY BASIC EXAMPLE) ---
-    // If moving a main point, move handles with it (relative positioning)
-    if (m_selection.part == SelectedPart::MAIN_POINT) {
-        // Only move handles if they weren't already coincident (avoids NaNs etc.)
+    // Move related handles if main point moved
+    if (movedPart == SelectedPart::MAIN_POINT) {
         if (node.handleIn != oldPos) node.handleIn += delta;
         if (node.handleOut != oldPos) node.handleOut += delta;
-        // Clamp handles after moving with main point
+        // Clamp handles
         node.handleIn.setY(std::max(0.0, std::min(1.0, node.handleIn.y())));
         node.handleOut.setY(std::max(0.0, std::min(1.0, node.handleOut.y())));
-        node.handleIn.setX(std::max(0.0, std::min(1.0, node.handleIn.x()))); // Simple clamp for now
-        node.handleOut.setX(std::max(0.0, std::min(1.0, node.handleOut.x())));// Simple clamp for now
-
+        node.handleIn.setX(std::max(0.0, std::min(1.0, node.handleIn.x())));
+        node.handleOut.setX(std::max(0.0, std::min(1.0, node.handleOut.x())));
     }
-
-    // ***vvv START OF UPDATED CONSTRAINT LOGIC vvv***
+    // Apply alignment constraints if handle moved
     else if (oppositeHandle != nullptr && node.alignment != HandleAlignment::Free) {
-        // Apply ALIGNED or MIRRORED constraints when moving a handle
-        const QPointF& mainPt = node.mainPoint;
-        QPointF vecMoved = *pointToMove - mainPt; // Vector from main to moved handle's NEW position
-
-        qreal lenMovedSq = QPointF::dotProduct(vecMoved, vecMoved);
-        QPointF newOppositePos; // Calculated new position for the opposite handle
-
-        // Check if the moved handle is coincident with the main point
-        if (lenMovedSq < 1e-12) // Use squared epsilon for comparison
-        {
-            // If coincident, make the opposite handle coincident too
-            newOppositePos = mainPt;
-        } else {
-            // Calculate based on mode if moved handle is not coincident
-            qreal lenMoved = qSqrt(lenMovedSq);
-            QPointF normDirOpposite = -vecMoved / lenMoved; // Normalized vector in opposite direction
-
+        const QPointF& mainPt = node.mainPoint; QPointF vecMoved = *pointToMove - mainPt;
+        qreal lenMovedSq = QPointF::dotProduct(vecMoved, vecMoved); QPointF newOppositePos;
+        if (lenMovedSq < 1e-12) { newOppositePos = mainPt; }
+        else {
+            qreal lenMoved = qSqrt(lenMovedSq); QPointF normDirOpposite = -vecMoved / lenMoved;
             if (node.alignment == HandleAlignment::Aligned) {
-                // Keep opposite handle's ORIGINAL distance from main point
                 QPointF vecOppositeOld = *oppositeHandle - mainPt;
                 qreal lenOppositeOld = qSqrt(QPointF::dotProduct(vecOppositeOld, vecOppositeOld));
                 newOppositePos = mainPt + normDirOpposite * lenOppositeOld;
-            } else { // Mirrored
-                // Use moved handle's NEW distance for the opposite handle
-                newOppositePos = mainPt + normDirOpposite * lenMoved;
-            }
+            } else { /* Mirrored */ newOppositePos = mainPt + normDirOpposite * lenMoved; }
         }
-
-        // Update the opposite handle and clamp its position (using basic 0-1 clamp)
         oppositeHandle->setX(std::max(0.0, std::min(1.0, newOppositePos.x())));
         oppositeHandle->setY(std::max(0.0, std::min(1.0, newOppositePos.y())));
-
-    } // ***^^^ END OF UPDATED CONSTRAINT LOGIC ^^^***
-
-    // --- Re-sort if a main point's X changed order ---
-    if (m_selection.part == SelectedPart::MAIN_POINT) {
-        bool needsReSort = (m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1);
-        if (needsReSort) {
-            // Store position to re-select after sorting
-            QPointF mainPointToFind = node.mainPoint;
-            sortNodes();
-            // Re-find index (fuzzy compare recommended but simple == might work)
-            m_selection.nodeIndex = -1;
-            for(int i=0; i<m_nodes.size(); ++i) {
-                if(m_nodes[i].mainPoint == mainPointToFind) {
-                    m_selection.nodeIndex = i;
-                    break;
-                }
-            }
-            if (m_selection.nodeIndex == -1) m_dragging = false; // Lost the point
-        }
     }
 
-    m_samplesDirty = true; // Curve shape changed
-    update();
-    emit curveChanged();
+    // Re-sort if a main point's X changed order
+    if (movedPart == SelectedPart::MAIN_POINT) {
+        bool needsReSort = (m_selection.nodeIndex > 0 && m_selection.nodeIndex < m_nodes.size() - 1);
+        if (needsReSort) {
+            QPointF mainPointToFind = node.mainPoint;
+            sortNodes(); // Sort m_nodes directly
+            // Re-find index in m_nodes
+            m_selection.nodeIndex = -1;
+            for(int i=0; i<m_nodes.size(); ++i){
+                // Use fuzzy compare for robustness with floating point positions
+                if(qFuzzyCompare(m_nodes[i].mainPoint.x(), mainPointToFind.x()) && qFuzzyCompare(m_nodes[i].mainPoint.y(), mainPointToFind.y())){
+                    m_selection.nodeIndex = i; break;
+                }
+            }
+            if (m_selection.nodeIndex == -1) { m_dragging = false; qWarning("Lost node after sort!"); } // Lost point
+        }
+    }
+    m_samplesDirty = true; update(); emit curveChanged();
 }
 
-
-
+/**
+ * @brief Handles mouse button release events. Completes dragging operations
+ * and pushes the final state change to the undo stack.
+ * @param event - Mouse event details.
+ */
 void CurveWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (m_dragging && event->button() == Qt::LeftButton) {
-        // Drag finished, check if state changed
-        if (m_stateBeforeAction != m_nodes) {
-            // *** Push command with before/after states ***
+        m_dragging = false; // End drag state
+
+        // Check if state was actually captured (should be if m_dragging was true)
+        // and if the state actually changed during the drag.
+        if (m_stateBeforeAction.size() > 0 && m_stateBeforeAction != m_nodes)
+        {
+            // Push command with single vector state
             m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Modify Curve"));
-                // Consider enabling merging:
-                // cmd->setObsolete(false); // Mark previous potentially merged command as not obsolete
+            qDebug() << "Modify Curve undo command pushed via mouse release.";
+        } else {
+            // No state change or state wasn't captured correctly.
+            qDebug() << "Mouse Release: State unchanged or not captured; no command pushed.";
         }
-        m_dragging = false;
-        m_stateBeforeAction.clear(); // Clear stored state
-
+        m_stateBeforeAction.clear(); // Clear stored state, action sequence complete
     }
-    // Handle other button releases if needed
+    QWidget::mouseReleaseEvent(event); // Call base implementation
 }
 
-void CurveWidget::resizeEvent(QResizeEvent *event)
-{
+/**
+ * @brief Handles widget resize events. Just triggers a repaint.
+ * @param event - Resize event details.
+ */
+void CurveWidget::resizeEvent(QResizeEvent *event) {
     QWidget::resizeEvent(event);
-    // Mapping changes, but curve itself doesn't, only repaint needed
-    update();
+    update(); // Repaint needed as mapping depends on size
 }
+
+/**
+ * @brief Handles key press events. Used here to change handle alignment mode (F, A, M).
+ * This action is undoable.
+ * @param event - Key event details.
+ */
+void CurveWidget::keyPressEvent(QKeyEvent *event)
+{
+    bool selectionValid = m_selection.part != SelectedPart::NONE &&
+                          m_selection.nodeIndex >= 0 &&
+                          m_selection.nodeIndex < m_nodes.size(); // Use m_nodes size
+
+    bool keyHandled = false; // Flag if F, A, or M was processed
+
+    if (selectionValid) {
+        CurveNode& node = m_nodes[m_selection.nodeIndex]; // Use m_nodes
+        HandleAlignment originalMode = node.alignment;
+        HandleAlignment newMode = originalMode;
+        bool modeChangeKeyPressed = true;
+
+        switch (event->key()) {
+        case Qt::Key_F: newMode = HandleAlignment::Free; break;
+        case Qt::Key_A: newMode = HandleAlignment::Aligned; break;
+        case Qt::Key_M: newMode = HandleAlignment::Mirrored; break;
+        default: modeChangeKeyPressed = false; break; // Not a mode change key
+        }
+
+        if (modeChangeKeyPressed && newMode != originalMode) {
+            m_stateBeforeAction = m_nodes; // Capture state BEFORE
+            node.alignment = newMode;      // Apply mode change
+            applyAlignmentSnap(m_selection.nodeIndex); // Apply snap logic
+
+            // Push command only if state actually changed after snap
+            if (m_stateBeforeAction != m_nodes) {
+                // Push command with single old/new state vectors
+                m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
+            } else {
+                m_stateBeforeAction.clear(); // Clear state if no effective change
+            }
+
+            // Update UI and signal listeners
+            m_samplesDirty = true; update(); emit curveChanged();
+            emit selectionChanged(m_selection.nodeIndex, newMode); // Update MainWindow
+            keyHandled = true; // Mark key as handled
+        }
+    }
+
+    // Final event handling
+    if (keyHandled) {
+        event->accept(); // Consume the event
+    } else {
+        QWidget::keyPressEvent(event); // Pass to base class for other keys
+    }
+}
+
+
+// --- Protected Method for Undo/Redo ---
+
+/**
+ * @brief Restores the internal node state from a given vector (called by Undo command).
+ * @param nodes - The node state to restore.
+ */
+void CurveWidget::restoreNodesInternal(const QVector<CurveNode>& nodes)
+{
+    // Check if state actually changed to avoid unnecessary updates/signal emissions
+    if (m_nodes != nodes) { // Requires CurveNode::operator==
+        m_nodes = nodes; // Assign the restored state
+        m_samplesDirty = true;
+        m_selection = {SelectedPart::NONE, -1}; // Reset selection on undo/redo
+        m_dragging = false;
+        update();
+        emit curveChanged();
+        // Emit deselection signal to update MainWindow UI
+        emit selectionChanged(-1, HandleAlignment::Free);
+    }
+}
+
 
 // --- Private Helper Functions ---
 
-// Find nearby node part
-CurveWidget::SelectionInfo CurveWidget::findNearbyPart(const QPoint& widgetPos, qreal mainRadius, qreal handleRadius)
-{
-    SelectionInfo closest = {SelectedPart::NONE, -1};
-    qreal minDistSq = 1e10; // Use squared distance for efficiency
-
-    // Convert widgetPos (QPoint) to QPointF once for calculations
-    QPointF widgetPosF = QPointF(widgetPos);
-
-    for (int i = 0; i < m_nodes.size(); ++i) {
-        const CurveNode& node = m_nodes[i]; // Get reference to current node
-
-        // Check Handles first (usually smaller target)
-        if (i > 0) { // Check HandleIn for node i (controls segment i-1 ending at i)
-            QPointF handleInWidget = mapToWidget(node.handleIn);
-            QPointF diffVec = widgetPosF - handleInWidget; // Vector from handle to click
-            qreal distSq = QPointF::dotProduct(diffVec, diffVec); // Calculate squared length
-            if (distSq < handleRadius * handleRadius && distSq < minDistSq) {
-                minDistSq = distSq;
-                closest = {SelectedPart::HANDLE_IN, i};
-            }
-        }
-        if (i < m_nodes.size() - 1) { // Check HandleOut for node i (controls segment i starting at i)
-            QPointF handleOutWidget = mapToWidget(node.handleOut);
-            QPointF diffVec = widgetPosF - handleOutWidget; // Vector from handle to click
-            qreal distSq = QPointF::dotProduct(diffVec, diffVec); // Calculate squared length
-            if (distSq < handleRadius * handleRadius && distSq < minDistSq) {
-                minDistSq = distSq;
-                closest = {SelectedPart::HANDLE_OUT, i};
-            }
-        }
-
-        // Check Main Point for node i
-        QPointF mainWidget = mapToWidget(node.mainPoint);
-        QPointF diffVec = widgetPosF - mainWidget; // Vector from main point to click
-        qreal distSq = QPointF::dotProduct(diffVec, diffVec); // Calculate squared length
-        if (distSq < mainRadius * mainRadius && distSq < minDistSq) {
-            // Update minimum distance even if we previously found a handle closer than mainRadius,
-            // because main point takes precedence if within its radius.
-            minDistSq = distSq;
-            closest = {SelectedPart::MAIN_POINT, i};
-        }
-    }
-    return closest;
-}
-
-// Sort nodes by main point X, ensuring endpoints are fixed at 0 and 1
-void CurveWidget::sortNodes()
-{
+/**
+ * @brief Sorts the internal m_nodes vector by the main point's X-coordinate.
+ * Ensures first and last nodes remain at X=0 and X=1 respectively.
+ */
+void CurveWidget::sortNodes() {
     if (m_nodes.size() <= 1) return;
-
-    // Store original endpoints if needed (though they should be fixed)
-    // QPointF firstMain = m_nodes.first().mainPoint;
-    // QPointF lastMain = m_nodes.last().mainPoint;
-
-    // Sort all points except the fixed first and last based on mainPoint.x
+    // Sort intermediate nodes
     if (m_nodes.size() > 2) {
         std::sort(m_nodes.begin() + 1, m_nodes.end() - 1,
                   [](const CurveNode& a, const CurveNode& b) {
                       return a.mainPoint.x() < b.mainPoint.x();
                   });
     }
-
-    // Force endpoints X coordinate - handles should ideally be adjusted too,
-    // but we rely on move logic to keep them reasonable for now.
+    // Ensure endpoints are fixed
     m_nodes.first().mainPoint.setX(0.0);
     m_nodes.last().mainPoint.setX(1.0);
+    m_samplesDirty = true; // Sorting affects curve sampling order
+}
 
-    m_samplesDirty = true; // Sorting changes curve sampling
+/**
+ * @brief Private helper to apply alignment snapping to a specific node's handles.
+ * @param nodeIndex - Index of the node whose handles should be snapped (in m_nodes).
+ */
+void CurveWidget::applyAlignmentSnap(int nodeIndex) {
+    // Check if it's an intermediate node
+    if (nodeIndex <= 0 || nodeIndex >= m_nodes.size() - 1) return;
+
+    CurveNode& node = m_nodes[nodeIndex]; // Get reference
+
+    // Snap only if mode requires it
+    if (node.alignment == HandleAlignment::Aligned || node.alignment == HandleAlignment::Mirrored) {
+        const QPointF& mainPt = node.mainPoint; QPointF* hIn = &node.handleIn; QPointF* hOut = &node.handleOut;
+        QPointF vecOut = *hOut - mainPt; qreal lenOutSq = QPointF::dotProduct(vecOut, vecOut); QPointF newInPos;
+        if (lenOutSq < 1e-12) { newInPos = mainPt; } // Handles coincident
+        else {
+            qreal lenOut = qSqrt(lenOutSq); QPointF normDirIn = -vecOut / lenOut;
+            if (node.alignment == HandleAlignment::Aligned) {
+                QPointF vecInOld = *hIn - mainPt; qreal lenInOld = qSqrt(QPointF::dotProduct(vecInOld, vecInOld));
+                newInPos = mainPt + normDirIn * lenInOld;
+            } else { // Mirrored
+                newInPos = mainPt + normDirIn * lenOut;
+            }
+        }
+        // Update handleIn and clamp its position
+        hIn->setX(std::max(0.0, std::min(1.0, newInPos.x())));
+        hIn->setY(std::max(0.0, std::min(1.0, newInPos.y())));
+    }
+}
+
+/**
+ * @brief Finds the closest interactive part (main point or handle) to a widget position.
+ * @param widgetPos - Position in widget coordinates.
+ * @param mainRadius - Click radius for main points (Defaults from header if not provided).
+ * @param handleRadius - Click radius for handles (Defaults from header if not provided).
+ * @return SelectionInfo indicating the closest part and its node index.
+ */
+CurveWidget::SelectionInfo CurveWidget::findNearbyPart(const QPoint& widgetPos, qreal mainRadius /*= 10.0*/, qreal handleRadius /*= 8.0*/)
+{
+    // Using default arguments from header declaration if not passed.
+    SelectionInfo closest = {SelectedPart::NONE, -1};
+    qreal minDistSq = std::numeric_limits<qreal>::max(); // Use squared distance
+    if (m_nodes.isEmpty()) return closest;
+
+    QPointF widgetPosF = QPointF(widgetPos); // Convert click pos once
+
+    // Iterate through the single m_nodes vector
+    for (int i = 0; i < m_nodes.size(); ++i) {
+        const CurveNode& node = m_nodes[i];
+        // Check Handles (In/Out based on index bounds)
+        if (i > 0) {
+            QPointF handleInWidget = mapToWidget(node.handleIn);
+            QPointF diffVec = widgetPosF - handleInWidget;
+            qreal distSq = QPointF::dotProduct(diffVec, diffVec);
+            if (distSq < handleRadius * handleRadius && distSq < minDistSq) {
+                minDistSq = distSq; closest = {SelectedPart::HANDLE_IN, i};
+            }
+        }
+        if (i < m_nodes.size() - 1) {
+            QPointF handleOutWidget = mapToWidget(node.handleOut);
+            QPointF diffVec = widgetPosF - handleOutWidget;
+            qreal distSq = QPointF::dotProduct(diffVec, diffVec);
+            if (distSq < handleRadius * handleRadius && distSq < minDistSq) {
+                minDistSq = distSq; closest = {SelectedPart::HANDLE_OUT, i};
+            }
+        }
+        // Check Main Point (takes precedence if within its radius and closer than any handle)
+        QPointF mainWidget = mapToWidget(node.mainPoint);
+        QPointF diffVec = widgetPosF - mainWidget;
+        qreal distSq = QPointF::dotProduct(diffVec, diffVec);
+        if (distSq < mainRadius * mainRadius && distSq < minDistSq) {
+            minDistSq = distSq; closest = {SelectedPart::MAIN_POINT, i};
+        }
+    }
+    return closest;
+}
+
+/**
+ * @brief Finds the closest point on the curve to a widget position, returning segment index and parameter t.
+ * Used for inserting new nodes. Operates on the single m_nodes curve.
+ * @param widgetPos - Position in widget coordinates.
+ * @return ClosestSegmentResult indicating segment index, parameter t, and distance squared.
+ */
+CurveWidget::ClosestSegmentResult CurveWidget::findClosestSegment(const QPoint& widgetPos) const
+{
+    ClosestSegmentResult bestMatch;
+    if (m_nodes.size() < 2) return bestMatch;
+
+    QPointF widgetPosF = QPointF(widgetPos);
+    const int stepsPerSegment = 20; // Sampling density for distance check
+    qreal minDistanceSq = std::numeric_limits<qreal>::max();
+
+    for (int i = 0; i < m_nodes.size() - 1; ++i) { // Iterate through segments
+        const CurveNode& node0 = m_nodes[i]; const CurveNode& node1 = m_nodes[i+1];
+        const QPointF p0 = node0.mainPoint; const QPointF p1 = node0.handleOut;
+        const QPointF p2 = node1.handleIn; const QPointF p3 = node1.mainPoint;
+
+        for (int j = 0; j <= stepsPerSegment; ++j) { // Sample points on segment
+            qreal t = static_cast<qreal>(j) / stepsPerSegment;
+            QPointF pointOnCurve = ::evaluateBezier(p0, p1, p2, p3, t); // Use helper from namespace
+            QPointF pointWidget = mapToWidget(pointOnCurve);
+            QPointF diffVec = widgetPosF - pointWidget;
+            qreal distSq = QPointF::dotProduct(diffVec, diffVec);
+            if (distSq < minDistanceSq) { // Found a closer point
+                minDistanceSq = distSq; bestMatch.segmentIndex = i;
+                bestMatch.t = t; bestMatch.distanceSq = distSq;
+            }
+        }
+    }
+    // Optional: Add max distance threshold if desired
+    // const qreal maxDistThresholdSq = 30.0 * 30.0;
+    // if (bestMatch.distanceSq > maxDistThresholdSq) {
+    //    bestMatch.segmentIndex = -1; // Mark as too far
+    // }
+    return bestMatch;
 }
 
 
-// --- Coordinate Mapping (Ensure using qreal) ---
+/**
+ * @brief Internal helper to sample the curve represented by the given nodes at x.
+ * IMPORTANT: Currently uses linear interpolation between main points for simplicity.
+ * Replace with proper Bezier sampling by X if higher accuracy is needed.
+ * @param nodes - The vector of nodes representing the curve.
+ * @param x - The X-coordinate to sample.
+ * @return The linearly interpolated Y-coordinate.
+ */
+qreal CurveWidget::sampleCurveInternal(const QVector<CurveNode>& nodes, qreal x) const {
+    // TODO: Implement proper Bezier sampling by X (solve cubic or use iteration)
+    if (nodes.size() < 2) return (nodes.isEmpty() ? 0.0 : nodes.first().mainPoint.y());
+    // Assume nodes are sorted by x (sortNodes should be called after relevant modifications)
+    if (x <= nodes.first().mainPoint.x()) return nodes.first().mainPoint.y();
+    if (x >= nodes.last().mainPoint.x()) return nodes.last().mainPoint.y();
+    for (int i = 0; i < nodes.size() - 1; ++i) {
+        const CurveNode& n1 = nodes[i]; const CurveNode& n2 = nodes[i+1];
+        if (x >= n1.mainPoint.x() && x <= n2.mainPoint.x()) {
+            qreal range = n2.mainPoint.x() - n1.mainPoint.x();
+            if (std::fabs(range) < 1e-9) return n1.mainPoint.y(); // Avoid division by zero
+            qreal t_lin = (x - n1.mainPoint.x()) / range;
+            return lerp(n1.mainPoint, n2.mainPoint, t_lin).y(); // Use global helper
+        }
+    }
+    return nodes.last().mainPoint.y(); // Fallback
+}
+
+/**
+ * @brief Updates the internal cache of sampled points (m_curveSamples) for the curve.
+ * Uses the m_nodes vector and evaluates the Bézier segments. Must be const for sampleCurve().
+ */
+void CurveWidget::updateCurveSamples() const {
+    m_curveSamples.clear();
+    if (m_nodes.size() < 2) { m_samplesDirty = false; return; } // Use m_nodes
+    m_curveSamples.reserve(m_numSamples + 1);
+    int numSegments = m_nodes.size() - 1;
+    for (int i = 0; i < numSegments; ++i) {
+        const CurveNode& node0 = m_nodes[i]; const CurveNode& node1 = m_nodes[i+1];
+        // Approximate samples per segment
+        int samplesPerSegment = m_numSamples / numSegments;
+        if (i == numSegments - 1) samplesPerSegment = m_numSamples - i * (m_numSamples / numSegments); // Remainder
+        samplesPerSegment = std::max(1, samplesPerSegment); // Ensure at least 1
+        // Add start point
+        if (i == 0) m_curveSamples.append(node0.mainPoint);
+        // Sample segment
+        for (int j = 1; j <= samplesPerSegment; ++j) {
+            qreal t = static_cast<qreal>(j) / samplesPerSegment;
+            QPointF sample = ::evaluateBezier(node0.mainPoint, node0.handleOut, node1.handleIn, node1.mainPoint, t); // Use helper
+            // Ensure monotonic X
+            if (!m_curveSamples.isEmpty() && sample.x() < m_curveSamples.last().x()) {
+                sample.setX(m_curveSamples.last().x());
+            }
+            sample.setY(std::max(0.0, std::min(1.0, sample.y()))); // Clamp Y
+            m_curveSamples.append(sample);
+        }
+    }
+    // Ensure last point is exactly the last node's main point if possible
+    if (!m_curveSamples.isEmpty() && m_curveSamples.last() != m_nodes.last().mainPoint) {
+        if (m_curveSamples.last().x() <= m_nodes.last().mainPoint.x()){ m_curveSamples.append(m_nodes.last().mainPoint); }
+        else { m_curveSamples.last() = m_nodes.last().mainPoint; }
+    }
+    m_samplesDirty = false; // Cache is now clean
+}
+
+
+// --- Coordinate Mapping ---
 QPointF CurveWidget::mapToWidget(const QPointF& logicalPoint) const
 {
-    const qreal margin = m_mainPointRadius + 2.0; // Use main radius for margin
-    qreal usableWidth = width() - 2.0 * margin;
-    qreal usableHeight = height() - 2.0 * margin;
-
+    const qreal margin = m_mainPointRadius + 2.0;
+    qreal usableWidth = std::max(1.0, width() - 2.0 * margin);   // Prevent non-positive size
+    qreal usableHeight = std::max(1.0, height() - 2.0 * margin); // Prevent non-positive size
     qreal widgetX = margin + logicalPoint.x() * usableWidth;
     qreal widgetY = margin + (1.0 - logicalPoint.y()) * usableHeight; // Y is inverted
-
     return QPointF(widgetX, widgetY);
 }
 
@@ -545,321 +875,9 @@ QPointF CurveWidget::mapFromWidget(const QPoint& widgetPoint) const
     const qreal margin = m_mainPointRadius + 2.0;
     qreal usableWidth = width() - 2.0 * margin;
     qreal usableHeight = height() - 2.0 * margin;
-
-    if (usableWidth <= 1e-6 || usableHeight <= 1e-6) {
-        return QPointF(0.0, 0.0);
-    }
-
+    if (usableWidth <= 1e-6 || usableHeight <= 1e-6) { return QPointF(0.0, 0.0); } // Avoid division by zero
     qreal logicalX = (static_cast<qreal>(widgetPoint.x()) - margin) / usableWidth;
-    qreal logicalY = 1.0 - (static_cast<qreal>(widgetPoint.y()) - margin) / usableHeight;
-
-    // Clamp results - move logic should handle constraints, but good safety
-    logicalX = std::max(0.0, std::min(1.0, logicalX));
-    logicalY = std::max(0.0, std::min(1.0, logicalY));
-
+    qreal logicalY = 1.0 - (static_cast<qreal>(widgetPoint.y()) - margin) / usableHeight; // Y is inverted
+    // No clamping here - let caller handle it
     return QPointF(logicalX, logicalY);
-}
-
-
-// --- Curve Sampling Approximation ---
-
-// Function to evaluate a single cubic bezier segment at parameter t
-inline QPointF evaluateBezier(const QPointF& p0, const QPointF& p1, const QPointF& p2, const QPointF& p3, qreal t) {
-    qreal mt = 1.0 - t;
-    qreal mt2 = mt * mt;
-    qreal t2 = t * t;
-
-    return p0 * mt * mt2 +       // (1-t)^3 * P0
-           p1 * 3.0 * mt2 * t +  // 3 * (1-t)^2 * t * P1
-           p2 * 3.0 * mt * t2 +  // 3 * (1-t) * t^2 * P2
-           p3 * t * t2;          // t^3 * P3
-}
-
-// Re-calculate the dense lookup table for sampleCurve(x)
-void CurveWidget::updateCurveSamples() const {
-    m_curveSamples.clear();
-    if (m_nodes.size() < 2) {
-        m_samplesDirty = false;
-        return;
-    }
-
-    m_curveSamples.reserve(m_numSamples + 1);
-
-    int numSegments = m_nodes.size() - 1;
-    qreal totalLengthApproximation = 0; // Could use this for adaptive sampling, but fixed steps for now
-
-    for (int i = 0; i < numSegments; ++i) {
-        // Estimate segment length? For now, divide samples evenly per segment
-        int samplesPerSegment = m_numSamples / numSegments;
-        if (i == 0) samplesPerSegment = m_numSamples - (numSegments - 1) * samplesPerSegment; // Give remainder to first
-
-        const CurveNode& node0 = m_nodes[i];
-        const CurveNode& node1 = m_nodes[i+1];
-
-        // Add start point of segment (unless it's the very first point overall)
-        if (i == 0) {
-            m_curveSamples.append(node0.mainPoint);
-        }
-
-        // Sample along the segment (parameter t from >0 to 1)
-        for (int j = 1; j <= samplesPerSegment; ++j) {
-            qreal t = static_cast<qreal>(j) / samplesPerSegment;
-            QPointF sample = evaluateBezier(node0.mainPoint, node0.handleOut, node1.handleIn, node1.mainPoint, t);
-            // Ensure samples are monotonic in X for lower_bound to work correctly
-            // (This might slightly distort the curve if handles make X non-monotonic)
-            if (!m_curveSamples.isEmpty() && sample.x() < m_curveSamples.last().x()) {
-                sample.setX(m_curveSamples.last().x()); // Clamp X if needed
-            }
-            // Clamp Y just in case
-            sample.setY(std::max(0.0, std::min(1.0, sample.y())));
-            m_curveSamples.append(sample);
-        }
-    }
-    // Ensure last point is exactly the last node's main point
-    if (!m_curveSamples.isEmpty() && m_curveSamples.last() != m_nodes.last().mainPoint) {
-        if (m_curveSamples.last().x() <= m_nodes.last().mainPoint.x()){ // Only overwrite if X is not beyond
-            m_curveSamples.append(m_nodes.last().mainPoint);
-        } else {
-            m_curveSamples.last() = m_nodes.last().mainPoint; // Overwrite last sample
-        }
-    }
-
-
-    m_samplesDirty = false;
-    // qDebug() << "Updated curve samples:" << m_curveSamples.size();
-}
-
-ClosestSegmentResult CurveWidget::findClosestSegment(const QPoint& widgetPos) const {
-    ClosestSegmentResult bestMatch;
-    if (m_nodes.size() < 2) return bestMatch; // No segments
-
-    QPointF widgetPosF = QPointF(widgetPos);
-    const int stepsPerSegment = 20; // Density for checking distance
-    qreal minDistanceSq = std::numeric_limits<qreal>::max();
-
-    // Iterate through each curve segment
-    for (int i = 0; i < m_nodes.size() - 1; ++i) {
-        const CurveNode& node0 = m_nodes[i];
-        const CurveNode& node1 = m_nodes[i + 1];
-        const QPointF p0 = node0.mainPoint;
-        const QPointF p1 = node0.handleOut;
-        const QPointF p2 = node1.handleIn;
-        const QPointF p3 = node1.mainPoint;
-
-        // Check distance at sample points along this segment
-        for (int j = 0; j <= stepsPerSegment; ++j) {
-            qreal t = static_cast<qreal>(j) / stepsPerSegment;
-            QPointF pointOnCurve = evaluateBezier(p0, p1, p2, p3, t);
-            QPointF pointWidget = mapToWidget(pointOnCurve);
-            QPointF diffVec = widgetPosF - pointWidget;
-            qreal distSq = QPointF::dotProduct(diffVec, diffVec);
-
-            if (distSq < minDistanceSq) {
-                minDistanceSq = distSq;
-                bestMatch.segmentIndex = i;
-                bestMatch.t = t;
-                bestMatch.distanceSq = distSq;
-            }
-        }
-    }
-
-    // Optional: Add a maximum distance threshold?
-    // const qreal maxDistThreshold = 30.0; // pixels
-    // if (bestMatch.distanceSq > maxDistThreshold * maxDistThreshold) {
-    //     bestMatch.segmentIndex = -1; // Too far away
-    // }
-
-    return bestMatch;
-}
-
-
-// Add this function implementation in curvewidget.cpp
-void CurveWidget::resetCurve()
-{
-    m_stateBeforeAction = m_nodes;
-    m_nodes.clear(); // Remove all existing nodes
-
-    // Re-initialize with the default straight line (same logic as constructor)
-    CurveNode node0(QPointF(0.0, 0.0));
-    CurveNode node1(QPointF(1.0, 1.0));
-
-
-    // Place handles to create an initial straight line (e.g., 1/3rd along segment)
-    // Make sure this matches your constructor's initial handle placement!
-    node0.handleOut = QPointF(1.0/3.0, 1.0/3.0);
-    node1.handleIn  = QPointF(2.0/3.0, 2.0/3.0);
-    // If you initialized handles coincident with points, use that instead:
-    // node0.handleOut = node0.mainPoint;
-    // node1.handleIn = node1.mainPoint;
-
-
-    m_nodes.append(node0);
-    m_nodes.append(node1);
-
-    if (m_stateBeforeAction != m_nodes) {
-        m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Reset Curve"));
-    }
-
-    // Reset state
-    m_samplesDirty = true; // Mark samples needing update
-    m_selection = {SelectedPart::NONE, -1}; // Clear any active selection
-    m_dragging = false; // Ensure dragging state is off
-
-    // Notify UI and update display
-    update(); // Repaint the widget
-    emit curveChanged(); // Notify MainWindow (e.g., to update preview)
-}
-
-
-
-
-void CurveWidget::keyPressEvent(QKeyEvent *event)
-{
-    if (m_selection.part != SelectedPart::NONE &&
-        m_selection.nodeIndex >= 0 && m_selection.nodeIndex < m_nodes.size())
-    {
-        CurveNode& node = m_nodes[m_selection.nodeIndex];
-        HandleAlignment originalMode = node.alignment;
-        HandleAlignment newMode;
-
-
-
-        switch (event->key()) {
-        case Qt::Key_F: newMode = HandleAlignment::Free; break;
-        case Qt::Key_A: newMode = HandleAlignment::Aligned; break;
-        case Qt::Key_M: newMode = HandleAlignment::Mirrored; break;
-        default:
-            QWidget::keyPressEvent(event);
-            return;
-        }
-
-        if (newMode != originalMode) {
-
-            m_stateBeforeAction = m_nodes; // Store state BEFORE change
-            node.alignment = newMode;
-            applyAlignmentSnap(m_selection.nodeIndex); // Apply snap AFTER setting mode
-
-            // Compare states and push command
-            if (m_stateBeforeAction != m_nodes) {
-                m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
-            }
-            node.alignment = newMode; // Set the new mode
-            qDebug() << "Node" << m_selection.nodeIndex << "alignment set to" << static_cast<int>(newMode) << "via keypress";
-
-            // Apply snap using helper function, only affects intermediate nodes
-            applyAlignmentSnap(m_selection.nodeIndex); // Pass the index
-
-            m_samplesDirty = true;
-            update();
-            emit curveChanged();
-            // Emit selection changed again to update button states
-            emit selectionChanged(m_selection.nodeIndex, newMode);
-        }
-        event->accept();
-    } else {
-        QWidget::keyPressEvent(event);
-    }
-}
-
-// --- Private Helper: applyAlignmentSnap ---
-// Adjusts handles according to Aligned/Mirrored mode for the given node index
-void CurveWidget::applyAlignmentSnap(int nodeIndex)
-{
-    // Snap only if it's an intermediate node
-    if (nodeIndex <= 0 || nodeIndex >= m_nodes.size() - 1) {
-        return; // No snapping for endpoints
-    }
-
-    CurveNode& node = m_nodes[nodeIndex]; // Get reference to the node
-
-    // Snap only if mode requires it
-    if (node.alignment == HandleAlignment::Aligned || node.alignment == HandleAlignment::Mirrored)
-    {
-        // Snap handleIn based on handleOut's current position
-        const QPointF& mainPt = node.mainPoint;
-        QPointF* hIn = &node.handleIn;
-        QPointF* hOut = &node.handleOut;
-
-        QPointF vecOut = *hOut - mainPt; // Vector from main to handleOut
-        qreal lenOutSq = QPointF::dotProduct(vecOut, vecOut);
-        QPointF newInPos; // Calculated new position for handleIn
-
-        if (lenOutSq < 1e-12) { // Use epsilon for float comparison
-            newInPos = mainPt; // If handleOut is coincident, make handleIn coincident too
-        } else {
-            qreal lenOut = qSqrt(lenOutSq);
-            QPointF normDirIn = -vecOut / lenOut; // Normalized opposite direction
-
-            if (node.alignment == HandleAlignment::Aligned) {
-                // Keep handleIn's original distance
-                QPointF vecInOld = *hIn - mainPt;
-                qreal lenInOld = qSqrt(QPointF::dotProduct(vecInOld, vecInOld));
-                newInPos = mainPt + normDirIn * lenInOld;
-            } else { // Mirrored
-                // Use handleOut's distance for handleIn
-                newInPos = mainPt + normDirIn * lenOut;
-            }
-        }
-        // Update handleIn and clamp its position (using basic 0-1 clamp)
-        hIn->setX(std::max(0.0, std::min(1.0, newInPos.x())));
-        hIn->setY(std::max(0.0, std::min(1.0, newInPos.y())));
-    }
-}
-
-
-// --- Public Slot Implementation: setNodeAlignment ---
-void CurveWidget::setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode) {
-    // Check if index is valid and mode is actually changing
-    if (nodeIndex >= 0 && nodeIndex < m_nodes.size() && m_nodes[nodeIndex].alignment != mode)
-    {
-        m_stateBeforeAction = m_nodes;
-        CurveNode& node = m_nodes[nodeIndex];
-        node.alignment = mode; // Set the new mode
-        qDebug() << "Node" << nodeIndex << "alignment set to" << static_cast<int>(mode) << "via slot";
-
-        // Apply immediate snap logic using the helper function
-        applyAlignmentSnap(nodeIndex); // Pass the index
-
-        if (m_stateBeforeAction != m_nodes) {
-            m_undoStack.push(new SetCurveStateCommand(this, m_stateBeforeAction, m_nodes, "Change Alignment"));
-        }
-
-        m_samplesDirty = true;
-        update();
-        emit curveChanged();
-        // Emit selection changed again so button states in MainWindow update
-        emit selectionChanged(nodeIndex, mode);
-    }
-}
-
-
-void CurveWidget::restoreNodesInternal(const QVector<CurveNode>& nodes)
-{
-    // Check if state actually changed to avoid unnecessary updates/signal emissions
-    if (m_nodes != nodes) { // QVector<CurveNode> needs operator== defined (or implement manual check)
-        // Default QVector operator== should work if CurveNode is comparable
-        m_nodes = nodes;
-        m_samplesDirty = true;
-        m_selection = {SelectedPart::NONE, -1}; // Reset selection on undo/redo
-        m_dragging = false;
-        update();
-        emit curveChanged();
-        // Emit deselection
-        emit selectionChanged(m_selection.nodeIndex, HandleAlignment::Free);
-    }
-}
-
-
-void CurveWidget::setDarkMode(bool dark)
-{
-    if (m_isDarkMode != dark) {
-        m_isDarkMode = dark;
-        // Update palette maybe? Or rely solely on paintEvent check.
-        // Setting a basic palette might still be useful for font colors etc.
-        QPalette p = palette();
-        p.setColor(QPalette::WindowText, dark ? Qt::white : Qt::black); // Example
-        setPalette(p);
-
-        update(); // Trigger repaint when mode changes
-    }
 }

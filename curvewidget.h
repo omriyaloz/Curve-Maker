@@ -4,132 +4,188 @@
 #include <QWidget>
 #include <QVector>
 #include <QPointF>
-#include <QMouseEvent>
-#include <QPaintEvent>
-#include <QPainter>
-#include <QPainterPath> // Needed for cubicTo
-#include <QKeyEvent>
-#include <QDebug> // For debugging output
-#include <QUndoStack>
+#include <QKeyEvent>    // For key events
+#include <QUndoStack>   // For Undo/Redo stack
+#include <QMouseEvent>  // Added for clarity
+#include <QPaintEvent>  // Added for clarity
 
+// Forward Declarations
+class SetCurveStateCommand; // For friend declaration
 
-//class CurveWidget;
-
-
-// Structure to return segment finding result
-struct ClosestSegmentResult {
-    int segmentIndex = -1; // Index of the segment (starts at 0)
-    qreal t = 0.0;         // Parameter (0-1) along the segment
-    qreal distanceSq = std::numeric_limits<qreal>::max(); // Min distance found
-};
-
+/**
+ * @brief A widget for editing a single-channel cubic Bézier curve.
+ *
+ * Provides functionality for adding, deleting, and moving nodes and their handles.
+ * Supports different handle alignment modes (Free, Aligned, Mirrored).
+ * Integrates with QUndoStack for undo/redo capabilities.
+ * Adapts drawing based on a dark mode flag.
+ */
 class CurveWidget : public QWidget
 {
-    Q_OBJECT
+    Q_OBJECT // Essential for signals/slots and meta-object features
 
 public:
-    // Structure to hold a main point and its associated control handles
+    // --- Public Enums ---
+    /** @brief Defines how handles behave relative to each other around a node. */
     enum class HandleAlignment {
-        Free, // Handles move independently
-        Aligned, // Handles stay collinear with main point, opposite directions, independent length
-        Mirrored // Aligned + equidistant from main point
+        Free,     ///< Handles move independently.
+        Aligned,  ///< Handles stay collinear through the main point. Lengths independent.
+        Mirrored  ///< Handles stay collinear and equidistant from the main point.
     };
+    Q_ENUM(HandleAlignment) // Make enum known to Qt's meta-object system
 
+    /** @brief (Retained from RGB) Defines curve channels - currently unused but kept for potential future expansion. */
+    enum class ActiveChannel { R, G, B };
+    Q_ENUM(ActiveChannel)
+
+    // --- Public Nested Struct ---
+    /** @brief Represents a node on the Bézier curve, including its handles and alignment mode. */
     struct CurveNode {
-        QPointF mainPoint;
-        QPointF handleIn;
-        QPointF handleOut;
-        // Use unqualified name now, as it's in the same class scope
-        HandleAlignment alignment = HandleAlignment::Aligned; // Default
+        QPointF mainPoint;      ///< Position of the node on the curve (logical 0-1 coords).
+        QPointF handleIn;       ///< Control handle for the curve segment entering this node (logical 0-1 coords).
+        QPointF handleOut;      ///< Control handle for the curve segment leaving this node (logical 0-1 coords).
+        HandleAlignment alignment = HandleAlignment::Aligned; ///< How handles behave.
 
-        // Declaration only - Define implementation in .cpp
-        CurveNode(QPointF p = QPointF(0,0));
+        CurveNode(QPointF p = QPointF(0,0)); // Constructor declaration
 
-
-        bool operator==(const CurveNode& other) const {
-            return mainPoint == other.mainPoint &&
-                   handleIn == other.handleIn &&
-                   handleOut == other.handleOut &&
-                   alignment == other.alignment;
-        }
+        // Equality operator needed for Undo state comparison
+        bool operator==(const CurveNode& other) const;
+        bool operator!=(const CurveNode& other) const { return !(*this == other); }
     };
 
+    // --- Public Methods ---
     explicit CurveWidget(QWidget *parent = nullptr);
+
+    /** @brief Gets a copy of the current curve nodes. */
     QVector<CurveNode> getNodes() const;
+
+    /**
+     * @brief Samples the curve's Y value at a given X value using cached approximation.
+     * @param x - X-coordinate (0.0 to 1.0).
+     * @return Approximate Y-coordinate (0.0 to 1.0).
+     */
     qreal sampleCurve(qreal x) const;
+
+    /**
+     * @brief (Retained from RGB) Samples a specific channel (currently just calls internal sampler on m_nodes).
+     * @param channel - The channel to sample (ignored in this version).
+     * @param x - X-coordinate (0.0 to 1.0).
+     * @return Approximate Y-coordinate (0.0 to 1.0).
+     */
+    qreal sampleCurveChannel(ActiveChannel channel, qreal x) const;
+
+    /** @brief Resets the curve to its default state (undoable). */
     void resetCurve();
 
+    /** @brief Returns a pointer to the internal QUndoStack for MainWindow integration. */
     QUndoStack* undoStack() { return &m_undoStack; }
-    friend class SetCurveStateCommand;
+
+    /** @brief Sets the dark mode flag to adjust drawing colors. */
     void setDarkMode(bool dark);
 
+    // --- Public Slots ---
 public slots:
+    /**
+     * @brief Sets the handle alignment mode for the node at the given index (undoable).
+     * @param nodeIndex - Index of the node to modify.
+     * @param mode - The new HandleAlignment mode.
+     */
     void setNodeAlignment(int nodeIndex, CurveWidget::HandleAlignment mode);
 
+    /**
+     * @brief (Retained from RGB) Sets the currently active channel (does nothing in single-channel version).
+     * @param channel - The channel to activate.
+     */
+    void setActiveChannel(CurveWidget::ActiveChannel channel);
 
+    // --- Signals ---
 signals:
-    void curveChanged(); // Signal emitted when the curve data is modified
-    // Emits node index (-1 if none) and its current alignment when selection changes
+    /** @brief Emitted when the curve data changes (nodes moved, added, deleted, reset). */
+    void curveChanged();
+
+    /**
+     * @brief Emitted when the selection changes (node/handle clicked or deselected).
+     * @param nodeIndex - Index of the selected node (-1 if none).
+     * @param currentAlignment - Alignment mode of the selected node.
+     */
     void selectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
 
+    /** @brief (Retained from RGB) Emitted when the active channel changes (unused in single-channel version). */
+    void activeChannelChanged(CurveWidget::ActiveChannel newChannel);
+
+    // --- Friend declaration for Undo Command ---
+    friend class SetCurveStateCommand; // Allow command class to call restoreNodesInternal
+
+    // --- Protected Event Handlers ---
 protected:
-    // --- Event handlers ---
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+
+    // --- Protected Method for Undo/Redo ---
+protected:
+    /** @brief Restores the internal node state from a given vector (called by Undo command). */
     void restoreNodesInternal(const QVector<CurveNode>& nodes);
 
+    // --- Private Helper Functions & Enums ---
 private:
-    // --- Helper functions ---
+    // --- Coordinate Mapping ---
     QPointF mapToWidget(const QPointF& logicalPoint) const;
     QPointF mapFromWidget(const QPoint& widgetPoint) const;
 
-
-
-    ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
-
-    // Find which part (main point, handle) is near the click
+    // --- Selection ---
+    /** @brief Defines which part of a node representation is selected. */
     enum class SelectedPart { NONE, MAIN_POINT, HANDLE_IN, HANDLE_OUT };
+    /** @brief Stores information about the current selection. */
     struct SelectionInfo {
         SelectedPart part = SelectedPart::NONE;
         int nodeIndex = -1;
     };
-
+    /** @brief Finds the closest interactive part (main point or handle) to a widget position. */
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
 
-    void sortNodes(); // Ensure nodes are sorted by mainPoint.x()
-    void updateCurveSamples() const;
-
+    // --- Curve Modification Helpers ---
+    /** @brief Structure to return info about closest point on curve for adding nodes. */
+    struct ClosestSegmentResult {
+        int segmentIndex = -1; qreal t = 0.0; qreal distanceSq = std::numeric_limits<qreal>::max();
+    };
+    /** @brief Finds the closest point on the curve to a widget position. */
+    ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
+    /** @brief Sorts m_nodes by X-coordinate, keeping endpoints fixed. */
+    void sortNodes();
+    /** @brief Adjusts handles based on alignment mode after a mode change or move. */
     void applyAlignmentSnap(int nodeIndex);
 
-    // --- Member variables ---
-private:
-    QVector<CurveNode> m_nodes; // Stores the curve nodes and handles
+    // --- Sampling & Cache ---
+    /** @brief Internal sampling helper (Currently uses linear interpolation - see TODO). */
+    qreal sampleCurveInternal(const QVector<CurveNode>& nodes, qreal x) const;
+    /** @brief Updates the internal sample cache (m_curveSamples). Must be const for sampleCurve(). */
+    void updateCurveSamples() const;
+    /** @brief Evaluates the Bezier curve equation. */
+    QPointF evaluateBezier(const QPointF& p0, const QPointF& p1, const QPointF& p2, const QPointF& p3, qreal t) const;
 
-    // Selection state
-    SelectionInfo m_selection;
-    bool m_dragging;
+    // --- Private Member Variables ---
+    QVector<CurveNode> m_nodes;            ///< Stores all nodes defining the curve.
+    SelectionInfo m_selection;             ///< Current selection state.
+    bool m_dragging = false;               ///< True if mouse is dragging a selection.
+    bool m_isDarkMode = false;             ///< Current theme mode for drawing.
 
-    const qreal m_mainPointRadius = 5.0; // Visual radius of main points
-    const qreal m_handleRadius = 4.0;    // Visual radius of handles
+    // Visual parameters
+    const qreal m_mainPointRadius;         ///< Visual radius of main points.
+    const qreal m_handleRadius;            ///< Visual radius of handles.
 
-    // Cache for approximated curve points (for sampleCurve)
-    mutable QVector<QPointF> m_curveSamples;
-    mutable bool m_samplesDirty = true; // Flag to recalculate samples when curve changes
-     // Recalculate the lookup table
-    const int m_numSamples = 256; // Number of samples for approximation LUT
-    // *** Add Undo Stack member ***
-    QUndoStack m_undoStack;
+    // Sampling cache
+    const int m_numSamples;                ///< Number of samples for curve approximation cache.
+    mutable QVector<QPointF> m_curveSamples; ///< Cached points for fast sampling.
+    mutable bool m_samplesDirty = true;    ///< True if cache needs recalculating.
 
-    // *** Add member to store state before an action starts ***
-    QVector<CurveNode> m_stateBeforeAction;
-    bool m_isDarkMode = false;
+    // Undo/Redo stack
+    QUndoStack m_undoStack;                ///< Manages undo/redo commands.
+    QVector<CurveNode> m_stateBeforeAction; ///< Stores node state before an undoable action starts.
 
 };
-
-
 
 #endif // CURVEWIDGET_H

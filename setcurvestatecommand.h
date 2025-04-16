@@ -3,40 +3,32 @@
 
 #include <QUndoCommand>
 #include <QVector>
-// We need the full definition of CurveNode, which is inside CurveWidget
-#include "curvewidget.h" // Include the widget header
+#include "curvewidget.h"
 
-// Forward declare CurveWidget to avoid circular includes if possible,
-// but we need the full definition for CurveNode here.
-// class CurveWidget;
+
 
 class SetCurveStateCommand : public QUndoCommand
 {
 public:
-    // Use the nested CurveNode type name
+    // Use the nested type from CurveWidget
     using CurveNode = CurveWidget::CurveNode;
 
+    // Constructor takes the single old/new node vectors
     SetCurveStateCommand(CurveWidget *widget,
-                         const QVector<CurveNode>& oldState,
-                         const QVector<CurveNode>& newState,
-                         const QString& text = "Modify Curve", // Allow setting command text
+                         const QVector<CurveNode>& oldNodes,
+                         const QVector<CurveNode>& newNodes,
+                         const QString& text = "Modify Curve",
                          QUndoCommand *parent = nullptr);
 
-    // Reimplement undo/redo functions
     void undo() override;
     void redo() override;
 
-    // Optional: Implement merging for consecutive moves
-    // int id() const override;
-    // bool mergeWith(const QUndoCommand *command) override;
+
 
 private:
-    CurveWidget *m_widget; // Pointer back to the widget to modify
-    QVector<CurveNode> m_oldState;
-    QVector<CurveNode> m_newState;
-    // Store the selection state too? Optional, adds complexity.
-    // int m_oldSelectionIndex;
-    // int m_newSelectionIndex;
+    CurveWidget *m_widget;
+    QVector<CurveNode> m_oldNodes; // Store single vector state
+    QVector<CurveNode> m_newNodes; // Store single vector state
 };
 
 #endif // SETCURVESTATECOMMAND_H
