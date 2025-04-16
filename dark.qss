@@ -4,7 +4,7 @@ QWidget {
     background-color: #353535; /* Dark Gray */
     color: #E0E0E0; /* Light Gray Text */
     border: none;
-    font-size: 9pt;
+    /*font-size: 9pt;*/
 }
 
 QMainWindow, QDialog {

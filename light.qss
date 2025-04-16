@@ -5,7 +5,7 @@ QWidget {
     background-color: #b5b3b3; /* Standard light gray window background */
     color: black;             /* Standard black text */
     border: none;             /* Reset borders */
-    font-size: 9pt;           /* Reset font size */
+    /*font-size: 9pt;*/           /* Reset font size */
     /* Reset any other global properties set in dark.qss */
 }
 

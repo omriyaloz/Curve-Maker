@@ -69,7 +69,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="tab_1">
        <attribute name="title">
@@ -159,7 +159,8 @@
              <property name="font">
               <font>
                <family>DejaVu Sans</family>
-               <pointsize>24</pointsize>
+               <pointsize>25</pointsize>
+               <italic>true</italic>
               </font>
              </property>
              <property name="layoutDirection">
@@ -169,7 +170,7 @@
               <string>LUT Preview</string>
              </property>
              <property name="alignment">
-              <set>Qt::AlignmentFlag::AlignCenter</set>
+              <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
              </property>
             </widget>
            </item>
@@ -210,7 +211,7 @@
              <item row="7" column="0">
               <widget class="QLabel" name="handleTypeLbl">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -220,6 +221,8 @@
                  <family>Calibri</family>
                  <pointsize>13</pointsize>
                  <bold>false</bold>
+                 <underline>false</underline>
+                 <kerning>true</kerning>
                 </font>
                </property>
                <property name="text">
@@ -233,7 +236,7 @@
              <item row="0" column="0">
               <widget class="QLabel" name="activeChannelLbl">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
@@ -242,10 +245,16 @@
                 <font>
                  <family>Calibri</family>
                  <pointsize>13</pointsize>
+                 <italic>false</italic>
+                 <bold>false</bold>
+                 <underline>false</underline>
                 </font>
                </property>
                <property name="text">
                 <string>Active Channel</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
                </property>
               </widget>
              </item>
@@ -273,7 +282,7 @@
                <item>
                 <widget class="QRadioButton" name="channelRedButton">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
@@ -286,7 +295,7 @@
                <item>
                 <widget class="QRadioButton" name="channelGreenButton">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
@@ -299,7 +308,7 @@
                <item>
                 <widget class="QRadioButton" name="channelBlueButton">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
