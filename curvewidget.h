@@ -163,7 +163,7 @@ private:
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
     ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
 
-    void applyAlignmentSnap(int nodeIndex, SelectedPart movedHandlePart); // Operates on active channel node
+    void applyAlignmentSnap(int nodeIndex, SelectedPart movedHandlePart, bool clampTarget = true); // Operates on active channel node
     void sortActiveNodes(); // Sorts nodes of the active channel by X
 
     QVector<CurveNode>& getActiveNodes(); // Non-const access to active channel nodes

@@ -386,7 +386,7 @@ void CurveWidget::setNodeAlignment(int nodeIndex, HandleAlignment mode) {
     if (node.alignment != mode) {
         m_stateBeforeAction = m_channelNodes; // Capture state BEFORE change
         node.alignment = mode;                // Apply the new mode
-        applyAlignmentSnap(nodeIndex, SelectedPart::HANDLE_OUT);        // Apply snap logic based on new mode
+        applyAlignmentSnap(nodeIndex, SelectedPart::HANDLE_OUT, true);        // Apply snap logic based on new mode
 
         QMap<ActiveChannel, QVector<CurveNode>> newState = m_channelNodes; // Capture state AFTER change
         bool stateChanged = false; // Compare states for undo...
@@ -683,17 +683,20 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
             m_dragging = false; m_currentDrag = {SelectedPart::NONE, -1}; return;
         }
 
-        QPointF logicalPos = mapFromWidget(event->pos()); // Target logical position
+        // Use the UNCLAMPED logical position from the mouse for delta calculation
+        QPointF logicalPos = mapFromWidget(event->pos());
         CurveNode& primaryNode = activeNodes[m_currentDrag.nodeIndex];
         QPointF deltaLogical; // Calculated change in logical coords
 
-        // --- Calculate Delta based on primary dragged part ---
+        // --- Calculate Delta based on what's being dragged ---
         if (m_currentDrag.part == SelectedPart::MAIN_POINT) {
             QPointF oldLogicalPos = primaryNode.mainPoint;
+            // Calculate target position WITH clamping for the main point being dragged
             qreal newX = logicalPos.x(); qreal newY = logicalPos.y();
-            newY = std::max(0.0, std::min(1.0, newY)); // Clamp Y
-
-            const qreal epsilon = 1e-9; // Clamp X based on neighbors/endpoints
+            // CLAMP Main Point Y coordinate
+            newY = std::max(0.0, std::min(1.0, newY));
+            // CLAMP Main Point X coordinate based on neighbors/endpoints
+            const qreal epsilon = 1e-9;
             if (m_currentDrag.nodeIndex == 0) newX = 0.0;
             else if (m_currentDrag.nodeIndex == activeNodes.size() - 1) newX = 1.0;
             else {
@@ -702,19 +705,19 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
                 if (minX > maxX) minX = maxX = (minX + maxX) / 2.0;
                 newX = std::max(minX, std::min(maxX, newX));
             }
-            newX = std::max(0.0, std::min(1.0, newX));
-            QPointF newLogicalPos(newX, newY);
-            deltaLogical = newLogicalPos - oldLogicalPos;
+            newX = std::max(0.0, std::min(1.0, newX)); // Final safety clamp
+            QPointF newClampedLogicalPos(newX, newY);
+            deltaLogical = newClampedLogicalPos - oldLogicalPos; // Delta based on clamped position
 
         } else if (m_currentDrag.part == SelectedPart::HANDLE_IN || m_currentDrag.part == SelectedPart::HANDLE_OUT) {
             QPointF* handlePtr = (m_currentDrag.part == SelectedPart::HANDLE_IN) ? &primaryNode.handleIn : &primaryNode.handleOut;
             QPointF oldLogicalPos = *handlePtr;
-            qreal newX = std::max(0.0, std::min(1.0, logicalPos.x()));
-            qreal newY = std::max(0.0, std::min(1.0, logicalPos.y()));
-            QPointF newLogicalPos(newX, newY);
-            deltaLogical = newLogicalPos - oldLogicalPos;
+            // Use the raw logical position - NO CLAMPING for handle target
+            QPointF newUnclampedLogicalPos = logicalPos;
+            deltaLogical = newUnclampedLogicalPos - oldLogicalPos; // Delta based on unclamped position
 
         } else { return; } // Not dragging a valid part
+
 
         // --- Apply Move based on Calculated Delta ---
         bool needsReSort = false;
@@ -726,31 +729,34 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
                 QPointF oldMainPos = nodeToMove.mainPoint;
                 const qreal handleCoincidenceThresholdSq = 1e-12;
 
+                // Apply delta to main point
                 nodeToMove.mainPoint += deltaLogical;
-                nodeToMove.mainPoint.setY(std::max(0.0, std::min(1.0, nodeToMove.mainPoint.y()))); // Clamp Y
+                // *** CLAMP moved Main Point Y coordinate ***
+                nodeToMove.mainPoint.setY(std::max(0.0, std::min(1.0, nodeToMove.mainPoint.y())));
 
-                // Move handles relatively, clamp them
+                // Move handles relatively
                 if (QPointF::dotProduct(nodeToMove.handleIn - oldMainPos, nodeToMove.handleIn - oldMainPos) > handleCoincidenceThresholdSq) nodeToMove.handleIn += deltaLogical;
                 if (QPointF::dotProduct(nodeToMove.handleOut - oldMainPos, nodeToMove.handleOut - oldMainPos) > handleCoincidenceThresholdSq) nodeToMove.handleOut += deltaLogical;
-                nodeToMove.handleIn.setX(std::max(0.0, std::min(1.0, nodeToMove.handleIn.x())));
-                nodeToMove.handleIn.setY(std::max(0.0, std::min(1.0, nodeToMove.handleIn.y())));
-                nodeToMove.handleOut.setX(std::max(0.0, std::min(1.0, nodeToMove.handleOut.x())));
-                nodeToMove.handleOut.setY(std::max(0.0, std::min(1.0, nodeToMove.handleOut.y())));
 
-                applyAlignmentSnap(index, SelectedPart::HANDLE_OUT); // Apply alignment after moving
+                // --- *** NO CLAMPING applied to relatively moved handles *** ---
+
+                // Apply alignment snap AFTER moving, using HANDLE_OUT as reference
+                applyAlignmentSnap(index, SelectedPart::HANDLE_OUT, false);
 
                 if (index > 0 && index < activeNodes.size() - 1) needsReSort = true;
             }
-            // Handle sorting (basic version - potential index issues with complex drags)
-            if (needsReSort) {
-                // sortActiveNodes(); // TODO: Implement robust index tracking or prevent crossover drags
-            }
+            // Handle sorting (basic version)
+            if (needsReSort) { qDebug() << "Multi-drag might require sorting."; /* sortActiveNodes(); */ }
 
         } else if ((m_currentDrag.part == SelectedPart::HANDLE_IN || m_currentDrag.part == SelectedPart::HANDLE_OUT) && !deltaLogical.isNull()) {
-            // Move single handle
+            // Move single handle being dragged
             QPointF* handlePtr = (m_currentDrag.part == SelectedPart::HANDLE_IN) ? &primaryNode.handleIn : &primaryNode.handleOut;
-            *handlePtr += deltaLogical;
-            applyAlignmentSnap(m_currentDrag.nodeIndex, m_currentDrag.part); // Apply alignment for this node
+            *handlePtr += deltaLogical; // Apply delta
+
+            // --- *** NO CLAMPING applied DIRECTLY to the moved handle here *** ---
+
+            // Apply alignment constraints (this will adjust the OTHER handle and clamp IT if necessary)
+            applyAlignmentSnap(m_currentDrag.nodeIndex, m_currentDrag.part, true);
         }
 
         // Update UI if movement occurred
@@ -761,11 +767,10 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
 
     } else if (m_isBoxSelecting) {
         // --- Updating Box Selection Rect ---
-        m_boxSelectionRect = QRect(m_boxSelectionStartPoint, event->pos()).normalized(); // Ensure positive width/height
+        m_boxSelectionRect = QRect(m_boxSelectionStartPoint, event->pos()).normalized();
         update(); // Redraw to show the rectangle
     }
 }
-
 /**
  * @brief Handles mouse release to finalize drags (with undo) or box selection.
  */
@@ -1132,64 +1137,51 @@ CurveWidget::ClosestSegmentResult CurveWidget::findClosestSegment(const QPoint& 
 }
 
 /**
- * @brief Private helper to apply alignment snapping to a specific node's handles
- * within the *active* channel's node list based on its alignment mode.
+ * @brief Applies alignment snap. Calculates TARGET handle based on SOURCE handle.
+ * @param nodeIndex Index of the node.
+ * @param movedHandlePart The handle considered the 'source' for the calculation.
+ * @param clampTarget If true, the calculated target handle position will be clamped to [0,1].
  */
-void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart movedHandlePart) {
-    QVector<CurveNode>& activeNodes = getActiveNodes(); // Get non-const ref
-
-    // Check if node index is valid and represents an intermediate node
+void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart movedHandlePart, bool clampTarget /*= true*/) {
+    QVector<CurveNode>& activeNodes = getActiveNodes();
     if (nodeIndex <= 0 || nodeIndex >= activeNodes.size() - 1) return;
-    // Check if a valid handle part was passed
     if (movedHandlePart != SelectedPart::HANDLE_IN && movedHandlePart != SelectedPart::HANDLE_OUT) return;
 
-    CurveNode& node = activeNodes[nodeIndex]; // Get reference to the node
-
-    // Snap only if mode requires it
+    CurveNode& node = activeNodes[nodeIndex];
     if (node.alignment == HandleAlignment::Free) return;
 
     const QPointF& mainPt = node.mainPoint;
-    QPointF* hSource = nullptr; // Pointer to the handle that was moved (source of truth)
-    QPointF* hTarget = nullptr; // Pointer to the handle that needs to be adjusted (target)
+    QPointF* hSource = (movedHandlePart == SelectedPart::HANDLE_IN) ? &node.handleIn : &node.handleOut;
+    QPointF* hTarget = (movedHandlePart == SelectedPart::HANDLE_IN) ? &node.handleOut : &node.handleIn;
 
-    // Identify source and target handles
-    if (movedHandlePart == SelectedPart::HANDLE_IN) {
-        hSource = &node.handleIn;
-        hTarget = &node.handleOut; // Target is the Out handle
-    } else { // movedHandlePart == SelectedPart::HANDLE_OUT
-        hSource = &node.handleOut;
-        hTarget = &node.handleIn; // Target is the In handle
-    }
-
-    // Calculate vector, length, and direction based on the SOURCE handle's current position
     QPointF vecSource = *hSource - mainPt;
     qreal lenSourceSq = QPointF::dotProduct(vecSource, vecSource);
-    QPointF newTargetPos; // Calculate the new position for the TARGET handle
+    QPointF newTargetPos;
 
-    if (lenSourceSq < 1e-12) { // If source handle moved onto the main point
-        newTargetPos = mainPt; // Snap target handle to main point too
+    if (lenSourceSq < 1e-12) {
+        newTargetPos = mainPt;
     } else {
         qreal lenSource = qSqrt(lenSourceSq);
-        // Normalized direction for the TARGET handle is opposite to the SOURCE handle's direction
-        QPointF normDirTarget = -vecSource / lenSource;
+        QPointF normDirTarget = -vecSource / lenSource; // Direction for Target
 
         if (node.alignment == HandleAlignment::Aligned) {
-            // Keep the original length of the TARGET handle
-            // Calculate length based on TARGET handle's position *before* this snap
             QPointF vecTargetOld = *hTarget - mainPt;
             qreal lenTargetOld = qSqrt(QPointF::dotProduct(vecTargetOld, vecTargetOld));
-            // Avoid division by zero if target was also coincident initially
             if(lenTargetOld < 1e-9) lenTargetOld = 0.0;
             newTargetPos = mainPt + normDirTarget * lenTargetOld;
         } else { // Mirrored
-            // Match the length of the SOURCE handle for the target handle
             newTargetPos = mainPt + normDirTarget * lenSource;
         }
     }
 
-    // Update TARGET handle position and clamp its coordinates
-    hTarget->setX(std::max(0.0, std::min(1.0, newTargetPos.x())));
-    hTarget->setY(std::max(0.0, std::min(1.0, newTargetPos.y())));
+    // *** Apply CLAMPING only if requested ***
+    if (clampTarget) {
+        hTarget->setX(std::max(0.0, std::min(1.0, newTargetPos.x())));
+        hTarget->setY(std::max(0.0, std::min(1.0, newTargetPos.y())));
+    } else {
+        // Set the calculated position directly without clamping
+        *hTarget = newTargetPos;
+    }
 }
 
 /**
