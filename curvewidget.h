@@ -1,3 +1,5 @@
+// curvewidget.h
+
 #ifndef CURVEWIDGET_H
 #define CURVEWIDGET_H
 
@@ -6,21 +8,31 @@
 #include <QPointF>
 #include <QMap>
 #include <QColor>
-#include <QUndoStack>
+#include <QUndoStack> // Include QUndoStack
+#include <QSet>      // Include QSet for multi-selection
+#include <QRect>     // Include QRect for box selection
+
+// Forward declarations for events are usually not needed if included via QWidget,
+// but include specific ones if needed directly (e.g., if using specific event members)
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
 
-// Forward declaration for the command (adjust path if needed)
+
+// Forward declaration for the command class
 class SetCurveStateCommand;
 
+/**
+ * @brief A widget for interactively editing Bézier curves,
+ * supporting multiple channels (R, G, B) and multiple point selection.
+ */
 class CurveWidget : public QWidget
 {
     Q_OBJECT
 
 public:
-    // --- Enums and Structs ---
+    // --- Public Enums and Structs ---
 
     /**
      * @brief Defines the possible channels for curves.
@@ -29,7 +41,6 @@ public:
         RED,
         GREEN,
         BLUE
-        // Optional: Add MASTER or LUMINANCE if desired later
     };
     Q_ENUM(ActiveChannel) // Make enum known to Qt's meta-object system
 
@@ -56,61 +67,49 @@ public:
         bool operator==(const CurveNode& other) const; // Needed for state comparison
         bool operator!=(const CurveNode& other) const { return !(*this == other); }
     };
-    QUndoStack* undoStack();
-    int getActiveNodeCount() const;
-
-private:
-    // --- Internal Structs for Interaction ---
-
-    /**
-     * @brief Identifies which part of a node is selected or targeted.
-     */
-    enum class SelectedPart {
-        NONE,
-        MAIN_POINT,
-        HANDLE_IN,
-        HANDLE_OUT
-    };
-
-    /**
-     * @brief Stores information about the currently selected part.
-     */
-    struct SelectionInfo {
-        SelectedPart part = SelectedPart::NONE;
-        int nodeIndex = -1; // Index within the active channel's QVector<CurveNode>
-    };
-
-    /**
-     * @brief Stores results when finding the closest point on a curve segment.
-     */
-    struct ClosestSegmentResult {
-        int segmentIndex = -1; // Index of the first node in the segment
-        qreal t = 0.0;         // Parameter along the Bézier segment (0-1)
-        qreal distanceSq = std::numeric_limits<qreal>::max(); // Squared distance to the point
-    };
-
 
 public:
     // --- Constructor ---
     explicit CurveWidget(QWidget *parent = nullptr);
 
     // --- Public Methods ---
+
+    // Sampling
     qreal sampleCurveChannel(ActiveChannel channel, qreal x) const;
+
+    // State Control
     void resetCurve(); // Resets the *active* channel curve
+
+    // Appearance
     void setDarkMode(bool dark);
+
+    // Getters
     QMap<ActiveChannel, QVector<CurveNode>> getAllChannelNodes() const; // Get all data
     ActiveChannel getActiveChannel() const;
-    void setDrawInactiveChannels(bool draw);
+    QUndoStack* undoStack(); // Get the undo stack
+    int getActiveNodeCount() const; // Get node count for active channel
+    QSet<int> getSelectedIndices() const; // Get set of selected main point indices
+    HandleAlignment getAlignment(int nodeIndex) const; // Get alignment for a specific node index
 
+public slots:
     // --- Public Slots ---
-    void setActiveChannel(CurveWidget::ActiveChannel channel);
-    void setNodeAlignment(int nodeIndex, HandleAlignment mode); // Operates on active channel
+    void setActiveChannel(ActiveChannel channel);
+    void setNodeAlignment(int nodeIndex, HandleAlignment mode); // Operates on active channel (if single selection)
+    void setDrawInactiveChannels(bool draw); // Toggle background curve drawing
 
 signals:
     // --- Signals ---
-    void curveChanged(); // Emitted when any part of the active curve is modified
-    void selectionChanged(int nodeIndex, CurveWidget::HandleAlignment alignmentMode); // Emitted when selection changes
-    // Optional: void activeChannelChanged(CurveWidget::ActiveChannel newChannel);
+    /**
+     * @brief Emitted when the active curve's shape or data is modified.
+     */
+    void curveChanged();
+
+    /**
+     * @brief Emitted when the set of selected main points changes,
+     * or when a handle is selected/deselected.
+     */
+    void selectionChanged();
+
 
 protected:
     // --- Event Handlers ---
@@ -125,7 +124,38 @@ protected:
     // This method MUST be called by the SetCurveStateCommand's undo/redo
     void restoreAllChannelNodes(const QMap<ActiveChannel, QVector<CurveNode>>& allNodes);
 
+
 private:
+    // --- Private Helper Enums/Structs ---
+
+    /**
+     * @brief Identifies which part of a node is selected or targeted for dragging.
+     */
+    enum class SelectedPart {
+        NONE,
+        MAIN_POINT,
+        HANDLE_IN,
+        HANDLE_OUT
+    };
+
+    /**
+     * @brief Stores information about the currently dragged part (if any).
+     */
+    struct SelectionInfo {
+        SelectedPart part = SelectedPart::NONE;
+        int nodeIndex = -1; // Index within the active channel's QVector<CurveNode>
+    };
+
+    /**
+     * @brief Stores results when finding the closest point on a curve segment.
+     */
+    struct ClosestSegmentResult {
+        int segmentIndex = -1;
+        qreal t = 0.0;
+        qreal distanceSq = std::numeric_limits<qreal>::max();
+    };
+
+
     // --- Private Helper Functions ---
     QPointF mapToWidget(const QPointF& logicalPoint) const;
     QPointF mapFromWidget(const QPoint& widgetPoint) const;
@@ -133,32 +163,42 @@ private:
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
     ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
 
-    void applyAlignmentSnap(int nodeIndex); // Operates on active channel node
+    void applyAlignmentSnap(int nodeIndex, SelectedPart movedHandlePart); // Operates on active channel node
     void sortActiveNodes(); // Sorts nodes of the active channel by X
 
     QVector<CurveNode>& getActiveNodes(); // Non-const access to active channel nodes
     const QVector<CurveNode>& getActiveNodes() const; // Const access
 
-    // --- Member Variables ---
+
+    // --- Private Member Variables ---
+
+    // Curve Data
     QMap<ActiveChannel, QVector<CurveNode>> m_channelNodes; // Stores nodes for R, G, B
     ActiveChannel m_activeChannel;                       // Currently selected channel for editing
 
+    // Undo/Redo State
     QUndoStack m_undoStack;                              // Handles undo/redo operations
-    // Stores the *entire* state map before an action for undo purposes
-    QMap<ActiveChannel, QVector<CurveNode>> m_stateBeforeAction;
+    QMap<ActiveChannel, QVector<CurveNode>> m_stateBeforeAction; // Stores state map before an action
+
+    // Interaction & Selection State
+    bool m_dragging;                  // True if dragging a point/handle
+    QSet<int> m_selectedNodeIndices;  // Indices of selected main points (multi-select)
+    SelectionInfo m_currentDrag;      // Info about the specific part being actively dragged (point OR handle)
+
+    bool m_isBoxSelecting;            // True if dragging a selection rectangle
+    QPoint m_boxSelectionStartPoint;  // Start point of box selection (widget coords)
+    QRect m_boxSelectionRect;         // Current box rectangle (widget coords)
+
+    // Appearance State
+    qreal m_mainPointRadius;          // Visual size of main points
+    qreal m_handleRadius;             // Visual size of handles
+    bool m_isDarkMode;                // Flag for drawing colors
+    bool m_drawInactiveChannels;      // Flag to control drawing inactive curves
 
 
-    bool m_dragging;                                     // True if mouse is dragging a point/handle
-    SelectionInfo m_selection;                           // Info about the selected part
-
-    qreal m_mainPointRadius;                             // Visual size of main points
-    qreal m_handleRadius;                                // Visual size of handles
-
-    bool m_isDarkMode;                                   // Flag for drawing colors
-    bool m_drawInactiveChannels;
-
-    // Friend declaration for the command class to call restoreAllChannelNodes
-    friend class SetCurveStateCommand; // Make sure command class name matches
+    // --- Friend Declaration ---
+    // Allow the command class to call the protected restore function
+    friend class SetCurveStateCommand;
 };
 
 #endif // CURVEWIDGET_H

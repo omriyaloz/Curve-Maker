@@ -35,7 +35,8 @@ private slots:
 
     // Slots connected to CurveWidget signals
     void updateLUTPreview(); // Updates the 3D LUT preview image
-    void onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
+    //void onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment);
+    void onCurveSelectionChanged(); // New signature
 
     // Slot for channel selection button group
     void onChannelButtonClicked(QAbstractButton *button);

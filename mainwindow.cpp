@@ -207,60 +207,78 @@ void MainWindow::on_actionPreviewRgb_toggled(bool checked)
 
 
 // Slot connected to CurveWidget::selectionChanged
-void MainWindow::onCurveSelectionChanged(int nodeIndex, CurveWidget::HandleAlignment currentAlignment) {
-    m_selectedNodeIndex = nodeIndex;
-
-    int nodeCount = 0;
-    if (ui->curveWidget) {
-        // Use the new getter for active node count
-        nodeCount = ui->curveWidget->getActiveNodeCount();
+void MainWindow::onCurveSelectionChanged()
+{
+    // Check if curveWidget exists
+    if (!ui->curveWidget) {
+        qWarning("onCurveSelectionChanged: curveWidget is null!");
+        // Ensure buttons are disabled if widget is gone
+        ui->freeBtn->setEnabled(false);
+        ui->alignedBtn->setEnabled(false);
+        ui->mirroredBtn->setEnabled(false);
+        ui->freeBtn->setChecked(false);
+        ui->alignedBtn->setChecked(false);
+        ui->mirroredBtn->setChecked(false);
+        m_selectedNodeIndex = -1; // Clear stored index
+        return;
     }
 
-    bool intermediateNodeSelected = (nodeIndex > 0 && nodeIndex < nodeCount - 1);
+    // Get the current selection state directly from the widget
+    QSet<int> selectedIndices = ui->curveWidget->getSelectedIndices();
+    bool singleNodeSelected = (selectedIndices.size() == 1);
+    bool enableAlignmentButtons = false; // Assume disabled by default
+    CurveWidget::HandleAlignment currentAlignment = CurveWidget::HandleAlignment::Free; // Default alignment
 
-    ui->freeBtn->setEnabled(intermediateNodeSelected);
-    ui->alignedBtn->setEnabled(intermediateNodeSelected);
-    ui->mirroredBtn->setEnabled(intermediateNodeSelected);
+    if (singleNodeSelected) {
+        // --- Exactly one node is selected ---
+        m_selectedNodeIndex = *selectedIndices.constBegin(); // Get the index
 
-    if (intermediateNodeSelected) {
-        // Block signals temporarily to prevent feedback loops if buttons trigger setNodeAlignment
-        ui->freeBtn->blockSignals(true);
-        ui->alignedBtn->blockSignals(true);
-        ui->mirroredBtn->blockSignals(true);
+        // Check if it's an intermediate node (not first or last)
+        int nodeCount = ui->curveWidget->getActiveNodeCount();
+        if (m_selectedNodeIndex > 0 && m_selectedNodeIndex < nodeCount - 1) {
+            // It's an intermediate node, so alignment applies
+            enableAlignmentButtons = true;
+            // Get the actual alignment mode for this specific node
+            currentAlignment = ui->curveWidget->getAlignment(m_selectedNodeIndex);
+        } else {
+            // It's an endpoint (0 or size-1), alignment doesn't apply
+            m_selectedNodeIndex = -1; // Clear stored index for alignment logic
+            enableAlignmentButtons = false;
+        }
+    } else {
+        // --- 0 or >1 nodes selected ---
+        m_selectedNodeIndex = -1; // Clear stored index
+        enableAlignmentButtons = false; // Alignment buttons disabled
+    }
 
+    // --- Update UI ---
+    // Update button enabled state
+    ui->freeBtn->setEnabled(enableAlignmentButtons);
+    ui->alignedBtn->setEnabled(enableAlignmentButtons);
+    ui->mirroredBtn->setEnabled(enableAlignmentButtons);
+
+    // Update button checked state (block signals temporarily to prevent feedback loops)
+    ui->freeBtn->blockSignals(true);
+    ui->alignedBtn->blockSignals(true);
+    ui->mirroredBtn->blockSignals(true);
+
+    if (enableAlignmentButtons) {
+        // Set checks based on the actual alignment of the single selected intermediate node
         ui->freeBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Free);
         ui->alignedBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Aligned);
         ui->mirroredBtn->setChecked(currentAlignment == CurveWidget::HandleAlignment::Mirrored);
-
-        ui->freeBtn->blockSignals(false);
-        ui->alignedBtn->blockSignals(false);
-        ui->mirroredBtn->blockSignals(false);
     } else {
+        // Uncheck all if alignment doesn't apply (no selection or endpoints)
         ui->freeBtn->setChecked(false);
         ui->alignedBtn->setChecked(false);
         ui->mirroredBtn->setChecked(false);
     }
-}
 
-// Slots for alignment button clicks (no change needed)
-void MainWindow::on_freeBtn_clicked() {
-    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
-        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Free);
-    }
+    // Re-enable signals
+    ui->freeBtn->blockSignals(false);
+    ui->alignedBtn->blockSignals(false);
+    ui->mirroredBtn->blockSignals(false);
 }
-
-void MainWindow::on_alignedBtn_clicked() {
-    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
-        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Aligned);
-    }
-}
-
-void MainWindow::on_mirroredBtn_clicked() {
-    if (m_selectedNodeIndex != -1 && ui->curveWidget) {
-        ui->curveWidget->setNodeAlignment(m_selectedNodeIndex, CurveWidget::HandleAlignment::Mirrored);
-    }
-}
-
 // Browse button (no change needed)
 void MainWindow::on_browseButton_clicked()
 {
@@ -567,3 +585,63 @@ void MainWindow::on_actionInactiveChannels_toggled(bool checked)
         ui->curveWidget->setDrawInactiveChannels(checked);
     }
 }
+
+
+
+/**
+ * @brief Slot called when the "Free" alignment button is clicked.
+ * Tells the CurveWidget to set the selected node's alignment if exactly one node is selected.
+ */
+void MainWindow::on_freeBtn_clicked()
+{
+    // Check if curveWidget exists and if exactly one node is selected
+    if (ui->curveWidget) {
+        QSet<int> selectedIndices = ui->curveWidget->getSelectedIndices();
+        if (selectedIndices.size() == 1) {
+            int index = *selectedIndices.constBegin(); // Get the single selected index
+            // CurveWidget::setNodeAlignment will perform further checks (e.g., if it's an endpoint)
+            ui->curveWidget->setNodeAlignment(index, CurveWidget::HandleAlignment::Free);
+        } else {
+            qDebug() << "Free button clicked, but selection size is not 1.";
+        }
+    }
+}
+
+/**
+ * @brief Slot called when the "Aligned" alignment button is clicked.
+ * Tells the CurveWidget to set the selected node's alignment if exactly one node is selected.
+ */
+void MainWindow::on_alignedBtn_clicked()
+{
+    // Check if curveWidget exists and if exactly one node is selected
+    if (ui->curveWidget) {
+        QSet<int> selectedIndices = ui->curveWidget->getSelectedIndices();
+        if (selectedIndices.size() == 1) {
+            int index = *selectedIndices.constBegin(); // Get the single selected index
+            ui->curveWidget->setNodeAlignment(index, CurveWidget::HandleAlignment::Aligned);
+        } else {
+            qDebug() << "Aligned button clicked, but selection size is not 1.";
+        }
+    }
+}
+
+/**
+ * @brief Slot called when the "Mirrored" alignment button is clicked.
+ * Tells the CurveWidget to set the selected node's alignment if exactly one node is selected.
+ */
+void MainWindow::on_mirroredBtn_clicked()
+{
+    // Check if curveWidget exists and if exactly one node is selected
+    if (ui->curveWidget) {
+        QSet<int> selectedIndices = ui->curveWidget->getSelectedIndices();
+        if (selectedIndices.size() == 1) {
+            int index = *selectedIndices.constBegin(); // Get the single selected index
+            ui->curveWidget->setNodeAlignment(index, CurveWidget::HandleAlignment::Mirrored);
+        } else {
+            qDebug() << "Mirrored button clicked, but selection size is not 1.";
+        }
+    }
+}
+
+// --- Make sure the rest of your mainwindow.cpp is present ---
+
