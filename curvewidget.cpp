@@ -107,7 +107,8 @@ CurveWidget::CurveWidget(QWidget *parent)
     m_selection({SelectedPart::NONE, -1}),
     m_mainPointRadius(5.0),
     m_handleRadius(4.0),
-    m_isDarkMode(false) // Default to light mode
+    m_isDarkMode(false),
+    m_drawInactiveChannels(false)
 {
     // Initialize default curves for R, G, B
     QList<ActiveChannel> channels = {ActiveChannel::RED, ActiveChannel::GREEN, ActiveChannel::BLUE};
@@ -339,6 +340,14 @@ void CurveWidget::setDarkMode(bool dark) {
     }
 }
 
+void CurveWidget::setDrawInactiveChannels(bool draw) {
+    if (m_drawInactiveChannels != draw) {
+        m_drawInactiveChannels = draw;
+        update(); // Trigger repaint to show/hide inactive channels
+        qDebug() << "Draw inactive channels set to:" << m_drawInactiveChannels;
+    }
+}
+
 // --- Public Slots ---
 
 /**
@@ -417,77 +426,96 @@ void CurveWidget::setActiveChannel(CurveWidget::ActiveChannel channel) {
  * and optionally inactive curves. Uses m_isDarkMode to select appropriate colors.
  */
 void CurveWidget::paintEvent(QPaintEvent *event) {
-    Q_UNUSED(event);
+    Q_UNUSED(event); // Mark event as unused
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // --- Define Colors ---
+    // --- Define Colors based on Dark/Light Mode ---
     QColor gridColor, borderColor, handleLineColor, handleColor, mainPointColor, outlineColor;
-    QColor activeCurveColor, inactiveCurveColorBase;
-    QColor selectionColor = Qt::yellow; // Color for selected parts
+    QColor activeCurveColor; // Color for the currently edited curve
+    QColor selectionColor = Qt::yellow; // Standard selection highlight
 
     if (m_isDarkMode) {
-        gridColor = QColor(80, 80, 80); borderColor = QColor(90, 90, 90);
-        handleLineColor = QColor(100, 100, 100); handleColor = QColor(0, 190, 190); // Tealish handle
-        mainPointColor = QColor(230, 230, 230); outlineColor = Qt::black;
-        activeCurveColor = QColor(240, 240, 240); // White/Light gray for active curve
-        inactiveCurveColorBase = QColor(100, 100, 100, 150); // Semi-transparent gray base for inactive
-    } else { // Light Mode
-        gridColor = QColor(210, 210, 210); borderColor = QColor(180, 180, 180);
-        handleLineColor = QColor(140, 140, 140); handleColor = QColor(0, 100, 100); // Darker tealish
-        mainPointColor = QColor(10, 10, 10); outlineColor = Qt::darkGray;
-        activeCurveColor = QColor(10, 10, 10); // Black/Dark gray for active curve
-        inactiveCurveColorBase = QColor(160, 160, 160, 150); // Semi-transparent gray base for inactive
+        // Dark Mode Colors
+        gridColor = QColor(80, 80, 80);
+        borderColor = QColor(90, 90, 90);
+        handleLineColor = QColor(100, 100, 100); // Lines connecting handles to main point
+        handleColor = QColor(0, 190, 190);      // Handles themselves (e.g., teal)
+        mainPointColor = QColor(230, 230, 230); // Main points on the curve (e.g., light gray)
+        outlineColor = Qt::black;              // Outline for points/handles
+        activeCurveColor = QColor(240, 240, 240); // Active curve line (e.g., white)
+    } else {
+        // Light Mode Colors
+        gridColor = QColor(210, 210, 210);
+        borderColor = QColor(180, 180, 180);
+        handleLineColor = QColor(140, 140, 140);
+        handleColor = QColor(0, 100, 100);      // Darker teal
+        mainPointColor = QColor(10, 10, 10);      // Black/Dark gray
+        outlineColor = Qt::darkGray;
+        activeCurveColor = QColor(10, 10, 10);      // Active curve line (e.g., black)
     }
 
-    // Map channel to color for inactive curves
-    auto getChannelColor = [&](ActiveChannel ch) -> QColor {
+    // Helper lambda to get specific color for inactive channels
+    auto getInactiveChannelColor = [&](ActiveChannel ch) -> QColor {
+        // Use a base semi-transparent color mixed with channel color
+        QColor base = m_isDarkMode ? QColor(100, 100, 100, 150) : QColor(160, 160, 160, 150);
         switch(ch) {
-        case ActiveChannel::RED:   return QColor(255, 80, 80, inactiveCurveColorBase.alpha()); // Dim Red
-        case ActiveChannel::GREEN: return QColor(80, 255, 80, inactiveCurveColorBase.alpha()); // Dim Green
-        case ActiveChannel::BLUE:  return QColor(80, 80, 255, inactiveCurveColorBase.alpha()); // Dim Blue
-        default: return inactiveCurveColorBase; // Fallback
+        case ActiveChannel::RED:   return QColor(255, 80, 80, base.alpha()); // Dim Red
+        case ActiveChannel::GREEN: return QColor(80, 255, 80, base.alpha()); // Dim Green
+        case ActiveChannel::BLUE:  return QColor(80, 80, 255, base.alpha()); // Dim Blue
+        default: return base; // Fallback shouldn't be needed
         }
     };
 
     // --- Draw Grid & Border ---
-    painter.setPen(QPen(gridColor, 0.5));
-    int numGridLines = 10;
+    painter.setPen(QPen(gridColor, 0.5)); // Thin pen for grid
+    int numGridLines = 10; // Number of divisions
     for (int i = 1; i < numGridLines; ++i) {
         qreal ratio = static_cast<qreal>(i) / numGridLines;
-        painter.drawLine(mapToWidget(QPointF(ratio, 1.0)), mapToWidget(QPointF(ratio, 0.0)));
+        // Draw vertical grid line
+        painter.drawLine(mapToWidget(QPointF(ratio, 0.0)), mapToWidget(QPointF(ratio, 1.0)));
+        // Draw horizontal grid line
         painter.drawLine(mapToWidget(QPointF(0.0, ratio)), mapToWidget(QPointF(1.0, ratio)));
     }
-    painter.setPen(QPen(borderColor, 1));
-    painter.drawRect(rect().adjusted(0, 0, -1, -1)); // Draw border slightly inside
+    painter.setPen(QPen(borderColor, 1)); // Slightly thicker pen for border
+    painter.drawRect(rect().adjusted(0, 0, -1, -1)); // Draw border inside widget bounds
 
-    // --- Draw Inactive Curves (Optional) ---
-    /* // Uncomment this block to draw inactive curves
-    painter.save();
-    painter.setPen(QPen(Qt::NoPen)); // No outline for inactive usually
-    for (auto it = m_channelNodes.constBegin(); it != m_channelNodes.constEnd(); ++it) {
-        if (it.key() == m_activeChannel) continue; // Skip active channel
 
-        const QVector<CurveNode>& nodes = it.value();
-        if (nodes.size() < 2) continue;
+    // --- Draw Inactive Curves (Conditional) ---
+    if (m_drawInactiveChannels) {
+        painter.save(); // Save painter state before changing pen etc.
 
-        QPainterPath inactivePath;
-        inactivePath.moveTo(mapToWidget(nodes[0].mainPoint));
-        for (int i = 0; i < nodes.size() - 1; ++i) {
-            inactivePath.cubicTo(mapToWidget(nodes[i].handleOut),
-                                 mapToWidget(nodes[i+1].handleIn),
-                                 mapToWidget(nodes[i+1].mainPoint));
+        // Iterate through ALL channels stored in the map
+        for (auto it = m_channelNodes.constBegin(); it != m_channelNodes.constEnd(); ++it) {
+            // Skip the currently ACTIVE channel
+            if (it.key() == m_activeChannel) continue;
+
+            const QVector<CurveNode>& nodes = it.value(); // Get nodes for this inactive channel
+            if (nodes.size() < 2) continue; // Cannot draw curve if < 2 nodes
+
+            // Create the path for the inactive curve
+            QPainterPath inactivePath;
+            inactivePath.moveTo(mapToWidget(nodes[0].mainPoint));
+            for (int i = 0; i < nodes.size() - 1; ++i) {
+                inactivePath.cubicTo(mapToWidget(nodes[i].handleOut),
+                                     mapToWidget(nodes[i+1].handleIn),
+                                     mapToWidget(nodes[i+1].mainPoint));
+            }
+
+            // Set pen style (e.g., thinner, dotted, using specific inactive channel color)
+            painter.setPen(QPen(getInactiveChannelColor(it.key()), 1.2, Qt::DotLine)); // Pen width 1.2, dotted line
+            painter.drawPath(inactivePath); // Draw the path
         }
-        painter.setPen(QPen(getChannelColor(it.key()), 1.5, Qt::DotLine)); // Thinner, dotted line
-        painter.drawPath(inactivePath);
-    }
-    painter.restore();
-    */
+        painter.restore(); // Restore painter state
+    } // End if (m_drawInactiveChannels)
+
 
     // --- Draw Active Curve ---
-    const QVector<CurveNode>& activeNodes = getActiveNodes(); // Get const ref
+    // Get the nodes for the currently active channel (use const reference)
+    const QVector<CurveNode>& activeNodes = getActiveNodes();
     if (activeNodes.size() < 2) return; // Cannot draw curve with < 2 nodes
 
+    // Create the path for the active curve
     QPainterPath curvePath;
     curvePath.moveTo(mapToWidget(activeNodes[0].mainPoint));
     for (int i = 0; i < activeNodes.size() - 1; ++i) {
@@ -495,40 +523,57 @@ void CurveWidget::paintEvent(QPaintEvent *event) {
                           mapToWidget(activeNodes[i+1].handleIn),
                           mapToWidget(activeNodes[i+1].mainPoint));
     }
-    // Use activeCurveColor, potentially tint it slightly by channel if desired?
-    // QColor currentCurveColor = activeCurveColor; // Keep it simple for now
-    painter.setPen(QPen(activeCurveColor, 2)); // Thicker line for active curve
+    // Use the activeCurveColor, make it slightly thicker than inactive ones
+    painter.setPen(QPen(activeCurveColor, 2)); // Pen width 2, solid line
     painter.drawPath(curvePath);
 
-    // --- Draw Nodes and Handles for Active Curve ---
+
+    // --- Draw Nodes and Handles for Active Curve ONLY ---
     for (int i = 0; i < activeNodes.size(); ++i) {
         const CurveNode& node = activeNodes[i];
-        QPointF mainWidgetPos = mapToWidget(node.mainPoint);
+        QPointF mainWidgetPos = mapToWidget(node.mainPoint); // Position of main point in widget coords
 
-        // Draw Handle Lines (only for active curve)
-        painter.setPen(QPen(handleLineColor, 1));
-        if (i > 0) painter.drawLine(mainWidgetPos, mapToWidget(node.handleIn));
-        if (i < activeNodes.size() - 1) painter.drawLine(mainWidgetPos, mapToWidget(node.handleOut));
+        // 1. Draw Handle Lines (connecting main point to handles)
+        painter.setPen(QPen(handleLineColor, 1)); // Use the defined handle line color
+        // Draw line to incoming handle (if not the first node)
+        if (i > 0) {
+            painter.drawLine(mainWidgetPos, mapToWidget(node.handleIn));
+        }
+        // Draw line to outgoing handle (if not the last node)
+        if (i < activeNodes.size() - 1) {
+            painter.drawLine(mainWidgetPos, mapToWidget(node.handleOut));
+        }
 
-        // Draw Handles (only for active curve)
-        painter.setPen(QPen(outlineColor, 0.5));
-        if (i > 0) { // Handle In exists only for nodes > 0
+        // 2. Draw Handles (the interactive circles/points)
+        painter.setPen(QPen(outlineColor, 0.5)); // Thin outline for handles
+        // Draw incoming handle (if not the first node)
+        if (i > 0) {
+            // Check if this specific handle is selected
             bool isSelected = (m_selection.part == SelectedPart::HANDLE_IN && m_selection.nodeIndex == i);
+            // Set brush color based on selection state
             painter.setBrush(isSelected ? selectionColor : handleColor);
+            // Draw the ellipse (circle) for the handle
             painter.drawEllipse(mapToWidget(node.handleIn), m_handleRadius, m_handleRadius);
         }
-        if (i < activeNodes.size() - 1) { // Handle Out exists only for nodes < size-1
+        // Draw outgoing handle (if not the last node)
+        if (i < activeNodes.size() - 1) {
+            // Check if this specific handle is selected
             bool isSelected = (m_selection.part == SelectedPart::HANDLE_OUT && m_selection.nodeIndex == i);
+            // Set brush color based on selection state
             painter.setBrush(isSelected ? selectionColor : handleColor);
+            // Draw the ellipse (circle) for the handle
             painter.drawEllipse(mapToWidget(node.handleOut), m_handleRadius, m_handleRadius);
         }
 
-        // Draw Main Point (for active curve)
-        painter.setPen(QPen(outlineColor, 1));
+        // 3. Draw Main Point (the interactive circle on the curve itself)
+        painter.setPen(QPen(outlineColor, 1)); // Slightly thicker outline for main point
+        // Check if this specific main point is selected
         bool isMainSelected = (m_selection.part == SelectedPart::MAIN_POINT && m_selection.nodeIndex == i);
+        // Set brush color based on selection state
         painter.setBrush(isMainSelected ? selectionColor : mainPointColor);
+        // Draw the ellipse (circle) for the main point
         painter.drawEllipse(mainWidgetPos, m_mainPointRadius, m_mainPointRadius);
-    }
+    } // End loop through active nodes
 }
 
 /**

@@ -29,8 +29,11 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow) // Create the UI instance
     , m_selectedNodeIndex(-1)
     , m_channelGroup(nullptr) // Initialize button group pointer
+    , m_isPreviewRgbCombined(true)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
+
+    m_isPreviewRgbCombined = ui->actionPreviewRgb->isChecked();
 
     // --- Style and Theme Setup ---
     qApp->setStyle(QStyleFactory::create("Fusion"));
@@ -102,11 +105,15 @@ MainWindow::MainWindow(QWidget *parent)
     // --- Connect Signals to Slots ---
     if (ui->curveWidget) {
         connect(ui->curveWidget, &CurveWidget::curveChanged,
-                this, &MainWindow::updateLUTPreview); // Slot implementation updated below
+                this, &MainWindow::updateLUTPreview);
 
         connect(ui->curveWidget, &CurveWidget::selectionChanged,
                 this, &MainWindow::onCurveSelectionChanged);
     }
+    if (ui->curveWidget) {
+        ui->curveWidget->setDrawInactiveChannels(ui->actionInactiveChannels->isChecked());
+    }
+
 
     // --- Initial State (Unchanged, but preview behavior changes) ---
     updateLUTPreview();
@@ -158,10 +165,12 @@ void MainWindow::applyTheme(bool dark)
 // Slot for channel selection button group
 void MainWindow::onChannelButtonClicked(QAbstractButton *button)
 {
-    if (!ui->curveWidget) return;
+    if (!ui->curveWidget) {
+        qWarning("onChannelButtonClicked: curveWidget is null!");
+        return;
+    }
 
-    CurveWidget::ActiveChannel channel = CurveWidget::ActiveChannel::RED; // Default
-
+    CurveWidget::ActiveChannel channel = CurveWidget::ActiveChannel::RED; // Determine channel from button
     if (button == ui->channelRedButton) {
         channel = CurveWidget::ActiveChannel::RED;
     } else if (button == ui->channelGreenButton) {
@@ -169,16 +178,30 @@ void MainWindow::onChannelButtonClicked(QAbstractButton *button)
     } else if (button == ui->channelBlueButton) {
         channel = CurveWidget::ActiveChannel::BLUE;
     } else {
-        qWarning() << "Unknown button clicked in channel group.";
-        return; // Don't change channel if button is unknown
+        qWarning("onChannelButtonClicked: Click received from unknown button.");
+        return; // Exit if button is not one of the expected channel buttons
     }
 
+    // Set the active channel in the curve widget for editing
     ui->curveWidget->setActiveChannel(channel);
-    // No need to explicitly call updateLUTPreview here, as setActiveChannel triggers
-    // a repaint on CurveWidget, which should emit curveChanged if needed,
-    // but changing channel itself doesn't change curve data.
-    // Let's update the preview explicitly to be sure it reflects the active channel's look.
-    // updateLUTPreview(); // Maybe not needed, depends if preview shows active curve only
+
+    // Update preview ONLY IF the secondary preview (lutPreviewLabel_3)
+    // might need to change because it's showing the active single channel.
+    if (!m_isPreviewRgbCombined) {
+        qDebug() << "Active channel changed, updating preview (single channel mode active).";
+        updateLUTPreview(); // This will regenerate/display the correct single channel in lutPreviewLabel_3
+    }
+    // No need to update preview otherwise, as lutPreviewLabel always shows RGB
+    // and lutPreviewLabel_3 already shows RGB if m_isPreviewRgbCombined is true.
+}
+
+void MainWindow::on_actionPreviewRgb_toggled(bool checked)
+{
+    if (m_isPreviewRgbCombined != checked) {
+        m_isPreviewRgbCombined = checked;
+        qDebug() << "Preview mode toggled. Is RGB Combined:" << m_isPreviewRgbCombined;
+        updateLUTPreview(); // Refresh the preview with the new mode
+    }
 }
 
 
@@ -260,42 +283,99 @@ void MainWindow::on_browseButton_clicked()
 /**
  * @brief Slot to update the LUT preview display. Generates a 1D combined RGB LUT image.
  */
+
 void MainWindow::updateLUTPreview()
 {
-    // Use a fixed reasonable width for preview, independent of export setting
+    // Use a fixed reasonable width for preview generation
     const int previewWidth = 256;
-    QImage lutImage = generateCombinedRgbLut1D(previewWidth); // Use the new generator
+    QImage rgbLutImage;
+    QImage secondaryLutImage; // For lutPreviewLabel_3
 
-    if (!lutImage.isNull()) {
-        QPixmap lutPixmap = QPixmap::fromImage(lutImage);
-
-        // Scale the 1-pixel high pixmap to fill the preview label(s)
-        // Ignore aspect ratio to stretch the height for visibility
-        ui->lutPreviewLabel->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel->size(),
-                                                        Qt::IgnoreAspectRatio, // Stretch vertically
-                                                        Qt::SmoothTransformation)); // Use smooth scaling
-
-        if (ui->lutPreviewLabel_3) {
-            ui->lutPreviewLabel_3->setPixmap(lutPixmap.scaled(ui->lutPreviewLabel_3->size(),
-                                                              Qt::IgnoreAspectRatio,
-                                                              Qt::SmoothTransformation));
-        }
-
-    } else {
-        // Clear preview if generation failed
-        ui->lutPreviewLabel->clear();
-        if (ui->lutPreviewLabel_3) ui->lutPreviewLabel_3->clear();
-        // Optionally display placeholder text/color
-        QPixmap errorPixmap(ui->lutPreviewLabel->size());
+    // --- Safety check for curve widget ---
+    if (!ui->curveWidget) {
+        qWarning("updateLUTPreview: curveWidget is null!");
+        // Prepare error placeholder
+        QPixmap errorPixmap;
+        if(ui->lutPreviewLabel) errorPixmap = QPixmap(ui->lutPreviewLabel->size());
+        else errorPixmap = QPixmap(100, 20); // Fallback size
         errorPixmap.fill(Qt::darkGray);
         QPainter painter(&errorPixmap);
         painter.setPen(Qt::white);
-        painter.drawText(errorPixmap.rect(), Qt::AlignCenter, "Preview N/A");
-        ui->lutPreviewLabel->setPixmap(errorPixmap);
+        painter.drawText(errorPixmap.rect(), Qt::AlignCenter, "Error: No Curve Widget");
+        painter.end(); // End painting
 
-        if (ui->lutPreviewLabel_3) ui->lutPreviewLabel_3->setPixmap(errorPixmap); // Show in both if exists
+        // Apply error placeholder to labels if they exist
+        if(ui->lutPreviewLabel) ui->lutPreviewLabel->setPixmap(errorPixmap);
+        if(ui->lutPreviewLabel_3) ui->lutPreviewLabel_3->setPixmap(errorPixmap.scaled(ui->lutPreviewLabel_3->size(), Qt::KeepAspectRatio)); // Scale error pixmap too
+
+        return; // Exit if no curve widget
     }
+
+    // --- 1. Generate and Display Combined RGB in lutPreviewLabel ---
+    rgbLutImage = generateCombinedRgbLut1D(previewWidth);
+
+    if (!rgbLutImage.isNull()) {
+        QPixmap rgbPixmap = QPixmap::fromImage(rgbLutImage);
+        // Scale the 1-pixel high pixmap to fill the preview label vertically
+        ui->lutPreviewLabel->setPixmap(rgbPixmap.scaled(ui->lutPreviewLabel->size(),
+                                                        Qt::IgnoreAspectRatio, // Stretch vertically
+                                                        Qt::SmoothTransformation));
+    } else {
+        qWarning("updateLUTPreview: Failed to generate Combined RGB LUT image.");
+        // Clear or show error placeholder if generation failed
+        ui->lutPreviewLabel->clear();
+        // You could draw a specific error placeholder here too
+        QPixmap errorPixmap(ui->lutPreviewLabel->size());
+        errorPixmap.fill(Qt::red);
+        QPainter painter(&errorPixmap);
+        painter.drawText(errorPixmap.rect(), Qt::AlignCenter, "RGB Gen Error");
+        painter.end();
+        ui->lutPreviewLabel->setPixmap(errorPixmap);
+    }
+
+
+    // --- 2. Generate and Display for lutPreviewLabel_3 (if it exists) based on mode ---
+    if (ui->lutPreviewLabel_3) { // Only proceed if the second label exists in the UI
+        if (m_isPreviewRgbCombined) {
+            // Mode is Combined RGB: Use the already generated image/pixmap
+            if (!rgbLutImage.isNull()) { // Check if RGB gen was successful
+                // Re-use the pixmap, scaled for the second label
+                QPixmap rgbPixmap = QPixmap::fromImage(rgbLutImage); // Regenerate pixmap if needed, or store earlier
+                ui->lutPreviewLabel_3->setPixmap(rgbPixmap.scaled(ui->lutPreviewLabel_3->size(),
+                                                                  Qt::IgnoreAspectRatio,
+                                                                  Qt::SmoothTransformation));
+            } else {
+                // If RGB failed, clear the secondary label too or show error
+                ui->lutPreviewLabel_3->clear();
+                // ... (optional: draw error placeholder) ...
+            }
+        } else {
+            // Mode is Active Single Channel: Generate grayscale LUT
+            CurveWidget::ActiveChannel activeChannel = ui->curveWidget->getActiveChannel();
+            secondaryLutImage = generateSingleChannelLut1D(activeChannel, previewWidth);
+
+            // Display the secondary (single channel) image
+            if (!secondaryLutImage.isNull()) {
+                QPixmap secondaryPixmap = QPixmap::fromImage(secondaryLutImage); // Handles grayscale ok
+                ui->lutPreviewLabel_3->setPixmap(secondaryPixmap.scaled(ui->lutPreviewLabel_3->size(),
+                                                                        Qt::IgnoreAspectRatio,
+                                                                        Qt::SmoothTransformation));
+            } else {
+                qWarning("updateLUTPreview: Failed to generate Single Channel LUT image.");
+                // Clear or show error placeholder if secondary generation failed
+                ui->lutPreviewLabel_3->clear();
+                // ... (optional: draw error placeholder) ...
+                QPixmap errorPixmap(ui->lutPreviewLabel_3->size());
+                errorPixmap.fill(Qt::red);
+                QPainter painter(&errorPixmap);
+                painter.drawText(errorPixmap.rect(), Qt::AlignCenter, "Grayscale Gen Error");
+                painter.end();
+                ui->lutPreviewLabel_3->setPixmap(errorPixmap);
+            }
+        }
+    } // endif ui->lutPreviewLabel_3 exists
 }
+
 /**
  * @brief Slot called when the export button is clicked. Generates and saves the 1D Combined RGB LUT.
  */
@@ -379,6 +459,22 @@ QImage MainWindow::generateCombinedRgbLut1D(int width)
     return image;
 }
 
+QImage MainWindow::generateSingleChannelLut1D(CurveWidget::ActiveChannel channel, int width)
+{
+    // ... (Keep exact implementation from the previous step) ...
+    if (width < 1 || !ui->curveWidget) return QImage();
+    QImage image(width, 1, QImage::Format_Grayscale8);
+    if (image.isNull()) return QImage();
+    uchar *line = image.scanLine(0);
+    for (int i = 0; i < width; ++i) {
+        qreal t = (width == 1) ? 0.0 : static_cast<qreal>(i) / (width - 1.0);
+        qreal y_norm = ui->curveWidget->sampleCurveChannel(channel, t);
+        y_norm = std::max(0.0, std::min(1.0, y_norm));
+        uchar gray_byte = static_cast<uchar>(std::round(y_norm * 255.0));
+        line[i] = gray_byte;
+    }
+    return image;
+}
 
 // Reset button clicked - calls reset on the CurveWidget
 void MainWindow::on_resetButton_clicked()
@@ -454,12 +550,20 @@ QImage MainWindow::generateLutImage3D(int size)
 }
 
 
-// --- Old modeBtn slot (keep if you still have this button) ---
+
 // If modeBtn was just for toggling dark mode, on_actionToggleDarkMode_toggled handles it.
 // Remove this if modeBtn is removed or repurposed.
 void MainWindow::on_modeBtn_clicked(bool checked)
 {
     // Assuming this button is intended to toggle dark mode like the action
     ui->actionToggleDarkMode->setChecked(checked);
-    // applyTheme(checked); // applyTheme is called by action's toggled signal
+    applyTheme(checked); // applyTheme is called by action's toggled signal
+}
+
+void MainWindow::on_actionInactiveChannels_toggled(bool checked)
+{
+    if (ui->curveWidget) {
+        // Pass the checked state directly to the CurveWidget's slot
+        ui->curveWidget->setDrawInactiveChannels(checked);
+    }
 }

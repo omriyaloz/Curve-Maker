@@ -100,6 +100,7 @@ public:
     void setDarkMode(bool dark);
     QMap<ActiveChannel, QVector<CurveNode>> getAllChannelNodes() const; // Get all data
     ActiveChannel getActiveChannel() const;
+    void setDrawInactiveChannels(bool draw);
 
     // --- Public Slots ---
     void setActiveChannel(CurveWidget::ActiveChannel channel);
@@ -154,6 +155,7 @@ private:
     qreal m_handleRadius;                                // Visual size of handles
 
     bool m_isDarkMode;                                   // Flag for drawing colors
+    bool m_drawInactiveChannels;
 
     // Friend declaration for the command class to call restoreAllChannelNodes
     friend class SetCurveStateCommand; // Make sure command class name matches

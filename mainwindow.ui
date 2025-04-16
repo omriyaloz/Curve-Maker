@@ -69,7 +69,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tab_1">
        <attribute name="title">
@@ -175,7 +175,7 @@
            </item>
            <item row="3" column="0">
             <layout class="QGridLayout" name="gridLayout_2">
-             <item row="7" column="0">
+             <item row="9" column="0">
               <widget class="QPushButton" name="alignedBtn">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
@@ -191,14 +191,7 @@
                </property>
               </widget>
              </item>
-             <item row="0" column="0">
-              <widget class="QRadioButton" name="channelRedButton">
-               <property name="text">
-                <string>Red</string>
-               </property>
-              </widget>
-             </item>
-             <item row="9" column="0">
+             <item row="11" column="0">
               <widget class="QPushButton" name="mirroredBtn">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
@@ -214,7 +207,7 @@
                </property>
               </widget>
              </item>
-             <item row="5" column="0">
+             <item row="7" column="0">
               <widget class="QLabel" name="handleTypeLbl">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
@@ -237,14 +230,26 @@
                </property>
               </widget>
              </item>
-             <item row="2" column="0">
-              <widget class="QRadioButton" name="channelBlueButton">
+             <item row="0" column="0">
+              <widget class="QLabel" name="activeChannelLbl">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="font">
+                <font>
+                 <family>Calibri</family>
+                 <pointsize>13</pointsize>
+                </font>
+               </property>
                <property name="text">
-                <string>Blue</string>
+                <string>Active Channel</string>
                </property>
               </widget>
              </item>
-             <item row="6" column="0">
+             <item row="8" column="0">
               <widget class="QPushButton" name="freeBtn">
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Fixed" vsizetype="Maximum">
@@ -264,11 +269,47 @@
               </widget>
              </item>
              <item row="1" column="0">
-              <widget class="QRadioButton" name="channelGreenButton">
-               <property name="text">
-                <string>Green</string>
-               </property>
-              </widget>
+              <layout class="QHBoxLayout" name="horizontalLayout_6">
+               <item>
+                <widget class="QRadioButton" name="channelRedButton">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>Red</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QRadioButton" name="channelGreenButton">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>Green</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QRadioButton" name="channelBlueButton">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>Blue</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </item>
             </layout>
            </item>
@@ -469,7 +510,11 @@
     <property name="title">
      <string>View</string>
     </property>
+    <addaction name="separator"/>
+    <addaction name="separator"/>
     <addaction name="actionToggleDarkMode"/>
+    <addaction name="actionPreviewRgb"/>
+    <addaction name="actionInactiveChannels"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
@@ -487,6 +532,28 @@
    </property>
    <property name="text">
     <string>Dark Mode</string>
+   </property>
+  </action>
+  <action name="actionInactiveChannels">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Draw Inactive Channels</string>
+   </property>
+  </action>
+  <action name="actionPreviewRgb">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Preview RGB Combined</string>
    </property>
   </action>
  </widget>

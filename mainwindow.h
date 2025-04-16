@@ -39,6 +39,8 @@ private slots:
 
     // Slot for channel selection button group
     void onChannelButtonClicked(QAbstractButton *button);
+    void on_actionPreviewRgb_toggled(bool checked);
+    void on_actionInactiveChannels_toggled(bool checked);
 
 private:
     // --- Helper Functions ---
@@ -46,11 +48,14 @@ private:
     // Renamed and updated function to generate 3D LUT image
     QImage generateLutImage3D(int size);
     QImage generateCombinedRgbLut1D(int width);
+    QImage generateSingleChannelLut1D(CurveWidget::ActiveChannel channel, int width);
 
     // --- Member Variables ---
     Ui::MainWindow *ui;         // Pointer to the UI elements
     int m_selectedNodeIndex;    // Index of the selected node in the *active* curve
     QButtonGroup *m_channelGroup; // Button group for R, G, B channel selection
+    bool m_isPreviewRgbCombined;
+
 };
 
 #endif // MAINWINDOW_H
