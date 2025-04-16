@@ -136,6 +136,7 @@ void MainWindow::on_actionToggleDarkMode_toggled(bool checked)
     applyTheme(checked);
     QSettings settings("MyCompany", "CurveMaker");
     settings.setValue("Appearance/DarkMode", checked);
+    ui->modeBtn->setChecked(checked);
 }
 
 void MainWindow::applyTheme(bool dark)
@@ -551,8 +552,7 @@ QImage MainWindow::generateLutImage3D(int size)
 
 
 
-// If modeBtn was just for toggling dark mode, on_actionToggleDarkMode_toggled handles it.
-// Remove this if modeBtn is removed or repurposed.
+
 void MainWindow::on_modeBtn_clicked(bool checked)
 {
     // Assuming this button is intended to toggle dark mode like the action

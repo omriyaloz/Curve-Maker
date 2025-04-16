@@ -513,6 +513,7 @@
     <addaction name="separator"/>
     <addaction name="separator"/>
     <addaction name="actionToggleDarkMode"/>
+    <addaction name="separator"/>
     <addaction name="actionPreviewRgb"/>
     <addaction name="actionInactiveChannels"/>
    </widget>
