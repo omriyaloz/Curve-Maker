@@ -31,3 +31,4 @@ moc_*.cpp
 qrc_*.cpp
 
 # Add other ignores as needed...
+*.xcf

@@ -16,6 +16,7 @@ qt_add_executable(CurveMaker
     curvewidget.h
     setcurvestatecommand.h setcurvestatecommand.cpp
     themes.qrc
+    resources.qrc
 )
 
 target_include_directories(CurveMaker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
