@@ -96,6 +96,7 @@ public slots:
     void setActiveChannel(ActiveChannel channel);
     void setNodeAlignment(int nodeIndex, HandleAlignment mode); // Operates on active channel (if single selection)
     void setDrawInactiveChannels(bool draw); // Toggle background curve drawing
+    void setHandlesClamping(bool clamp);
 
 signals:
     // --- Signals ---
@@ -163,12 +164,12 @@ private:
     SelectionInfo findNearbyPart(const QPoint& widgetPos, qreal mainRadius = 10.0, qreal handleRadius = 8.0);
     ClosestSegmentResult findClosestSegment(const QPoint& widgetPos) const;
 
-    void applyAlignmentSnap(int nodeIndex, SelectedPart movedHandlePart, bool clampTarget = true); // Operates on active channel node
+    void applyAlignmentSnap(int nodeIndex, SelectedPart movedHandlePart); // Operates on active channel node
     void sortActiveNodes(); // Sorts nodes of the active channel by X
 
     QVector<CurveNode>& getActiveNodes(); // Non-const access to active channel nodes
     const QVector<CurveNode>& getActiveNodes() const; // Const access
-
+    void clampHandlePosition(QPointF& handlePos);
 
     // --- Private Member Variables ---
 
@@ -194,6 +195,7 @@ private:
     qreal m_handleRadius;             // Visual size of handles
     bool m_isDarkMode;                // Flag for drawing colors
     bool m_drawInactiveChannels;      // Flag to control drawing inactive curves
+    bool m_clampHandles;
 
 
     // --- Friend Declaration ---

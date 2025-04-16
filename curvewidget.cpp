@@ -125,8 +125,9 @@ CurveWidget::CurveWidget(QWidget *parent)
     m_mainPointRadius(5.0),              // Default visual size
     m_handleRadius(4.0),                 // Default visual size
     m_isDarkMode(false),                 // Default theme
-    m_drawInactiveChannels(false)        // Default inactive curve visibility
-// Other members like QSet, QMap, QRect, QPoint, QUndoStack are default constructed
+    m_drawInactiveChannels(false),        // Default inactive curve visibility
+    m_clampHandles(true)
+
 {
     // Initialize default curves for R, G, B channels
     QList<ActiveChannel> channels = {ActiveChannel::RED, ActiveChannel::GREEN, ActiveChannel::BLUE};
@@ -386,7 +387,7 @@ void CurveWidget::setNodeAlignment(int nodeIndex, HandleAlignment mode) {
     if (node.alignment != mode) {
         m_stateBeforeAction = m_channelNodes; // Capture state BEFORE change
         node.alignment = mode;                // Apply the new mode
-        applyAlignmentSnap(nodeIndex, SelectedPart::HANDLE_OUT, true);        // Apply snap logic based on new mode
+        applyAlignmentSnap(nodeIndex, SelectedPart::HANDLE_OUT);        // Apply snap logic based on new mode
 
         QMap<ActiveChannel, QVector<CurveNode>> newState = m_channelNodes; // Capture state AFTER change
         bool stateChanged = false; // Compare states for undo...
@@ -738,10 +739,12 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
                 if (QPointF::dotProduct(nodeToMove.handleIn - oldMainPos, nodeToMove.handleIn - oldMainPos) > handleCoincidenceThresholdSq) nodeToMove.handleIn += deltaLogical;
                 if (QPointF::dotProduct(nodeToMove.handleOut - oldMainPos, nodeToMove.handleOut - oldMainPos) > handleCoincidenceThresholdSq) nodeToMove.handleOut += deltaLogical;
 
-                // --- *** NO CLAMPING applied to relatively moved handles *** ---
+                // *** Apply conditional clamping AFTER relative move ***
+                clampHandlePosition(nodeToMove.handleIn);
+                clampHandlePosition(nodeToMove.handleOut);
 
                 // Apply alignment snap AFTER moving, using HANDLE_OUT as reference
-                applyAlignmentSnap(index, SelectedPart::HANDLE_OUT, false);
+                applyAlignmentSnap(index, SelectedPart::HANDLE_OUT);
 
                 if (index > 0 && index < activeNodes.size() - 1) needsReSort = true;
             }
@@ -753,10 +756,11 @@ void CurveWidget::mouseMoveEvent(QMouseEvent *event)
             QPointF* handlePtr = (m_currentDrag.part == SelectedPart::HANDLE_IN) ? &primaryNode.handleIn : &primaryNode.handleOut;
             *handlePtr += deltaLogical; // Apply delta
 
-            // --- *** NO CLAMPING applied DIRECTLY to the moved handle here *** ---
+            // *** Apply conditional clamping AFTER applying delta ***
+            clampHandlePosition(*handlePtr);
 
             // Apply alignment constraints (this will adjust the OTHER handle and clamp IT if necessary)
-            applyAlignmentSnap(m_currentDrag.nodeIndex, m_currentDrag.part, true);
+            applyAlignmentSnap(m_currentDrag.nodeIndex, m_currentDrag.part);
         }
 
         // Update UI if movement occurred
@@ -1138,11 +1142,9 @@ CurveWidget::ClosestSegmentResult CurveWidget::findClosestSegment(const QPoint& 
 
 /**
  * @brief Applies alignment snap. Calculates TARGET handle based on SOURCE handle.
- * @param nodeIndex Index of the node.
- * @param movedHandlePart The handle considered the 'source' for the calculation.
- * @param clampTarget If true, the calculated target handle position will be clamped to [0,1].
+ * Uses clampHandlePosition helper to conditionally clamp the target position.
  */
-void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart movedHandlePart, bool clampTarget /*= true*/) {
+void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart movedHandlePart) { // Reverted signature
     QVector<CurveNode>& activeNodes = getActiveNodes();
     if (nodeIndex <= 0 || nodeIndex >= activeNodes.size() - 1) return;
     if (movedHandlePart != SelectedPart::HANDLE_IN && movedHandlePart != SelectedPart::HANDLE_OUT) return;
@@ -1156,14 +1158,13 @@ void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart mo
 
     QPointF vecSource = *hSource - mainPt;
     qreal lenSourceSq = QPointF::dotProduct(vecSource, vecSource);
-    QPointF newTargetPos;
+    QPointF newTargetPos; // Calculate the unclamped target position
 
     if (lenSourceSq < 1e-12) {
         newTargetPos = mainPt;
     } else {
         qreal lenSource = qSqrt(lenSourceSq);
-        QPointF normDirTarget = -vecSource / lenSource; // Direction for Target
-
+        QPointF normDirTarget = -vecSource / lenSource;
         if (node.alignment == HandleAlignment::Aligned) {
             QPointF vecTargetOld = *hTarget - mainPt;
             qreal lenTargetOld = qSqrt(QPointF::dotProduct(vecTargetOld, vecTargetOld));
@@ -1174,14 +1175,11 @@ void CurveWidget::applyAlignmentSnap(int nodeIndex, CurveWidget::SelectedPart mo
         }
     }
 
-    // *** Apply CLAMPING only if requested ***
-    if (clampTarget) {
-        hTarget->setX(std::max(0.0, std::min(1.0, newTargetPos.x())));
-        hTarget->setY(std::max(0.0, std::min(1.0, newTargetPos.y())));
-    } else {
-        // Set the calculated position directly without clamping
-        *hTarget = newTargetPos;
-    }
+    // *** Conditionally clamp the calculated target position ***
+    clampHandlePosition(newTargetPos);
+
+    // Set the final (potentially clamped) position
+    *hTarget = newTargetPos;
 }
 
 /**
@@ -1216,4 +1214,21 @@ void CurveWidget::sortActiveNodes() {
     // needs to be updated, which is complex. Current implementation might
     // lose track of selection if nodes reorder significantly.
     qDebug() << "Warning: sortActiveNodes called - selection indices may be invalid if order changed.";
+}
+
+void CurveWidget::setHandlesClamping(bool clamp) {
+    if (m_clampHandles != clamp) {
+        m_clampHandles = clamp;
+        // No repaint needed usually, but doesn't hurt if constraints change visually somehow
+        // update();
+        qDebug() << "Handle clamping set to:" << m_clampHandles;
+    }
+}
+
+void CurveWidget::clampHandlePosition(QPointF& handlePos) {
+    if (m_clampHandles) {
+        handlePos.setX(std::max(0.0, std::min(1.0, handlePos.x())));
+        handlePos.setY(std::max(0.0, std::min(1.0, handlePos.y())));
+    }
+    // If m_clampHandles is false, position remains unchanged
 }

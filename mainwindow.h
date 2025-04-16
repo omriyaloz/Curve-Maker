@@ -43,6 +43,7 @@ private slots:
     void on_actionPreviewRgb_toggled(bool checked);
     void on_actionInactiveChannels_toggled(bool checked);
 
+    void on_clampHandlesCheckbox_stateChanged(int state);
 private:
     // --- Helper Functions ---
     void applyTheme(bool dark);

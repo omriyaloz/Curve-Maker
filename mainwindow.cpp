@@ -113,6 +113,9 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->curveWidget) {
         ui->curveWidget->setDrawInactiveChannels(ui->actionInactiveChannels->isChecked());
     }
+    if (ui->curveWidget) {
+        ui->curveWidget->setHandlesClamping(ui->clampHandlesCheckbox->isChecked());
+    }
 
 
     // --- Initial State (Unchanged, but preview behavior changes) ---
@@ -643,5 +646,10 @@ void MainWindow::on_mirroredBtn_clicked()
     }
 }
 
-// --- Make sure the rest of your mainwindow.cpp is present ---
+void MainWindow::on_clampHandlesCheckbox_stateChanged(int state)
+{
+    if (ui->curveWidget) {
+        ui->curveWidget->setHandlesClamping(state == Qt::Checked);
+    }
+}
 
