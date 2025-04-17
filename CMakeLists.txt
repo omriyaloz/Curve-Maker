@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(CurveMaker LANGUAGES CXX)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
@@ -17,6 +19,7 @@ qt_add_executable(CurveMaker
     setcurvestatecommand.h setcurvestatecommand.cpp
     themes.qrc
     resources.qrc
+    app_resource.rc
 )
 
 target_include_directories(CurveMaker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -33,6 +33,12 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
 
+    // --- Populate Export Bit Depth ComboBox ---
+    // Add items: Display Text, UserData (stores the bit depth integer: 8 or 16)
+    ui->exportBitDepthComboBox->addItem("8-bit per channel", QVariant(8));
+    ui->exportBitDepthComboBox->addItem("16-bit per channel", QVariant(16));
+    ui->exportBitDepthComboBox->setCurrentIndex(0); // Default to 8-bit
+
     m_isPreviewRgbCombined = ui->actionPreviewRgb->isChecked();
 
     // --- Style and Theme Setup ---
@@ -287,16 +293,28 @@ void MainWindow::on_browseButton_clicked()
 {
     QString currentSuggestion = ui->filePathLineEdit->text();
     // Suggest png as it's common for LUT images
+
+    int currentDepth = ui->exportBitDepthComboBox->currentData().toInt();
+    QString filter = tr("PNG Image (*.png)");
+    QString defaultSuffix = ".png";
+
     QString fileName = QFileDialog::getSaveFileName(this,
-                                                    tr("Save 3D LUT Image"),
+                                                    tr("Save Combined RGB LUT Image"),
                                                     currentSuggestion,
-                                                    tr("PNG Image (*.png);;All Files (*)"));
+                                                    filter);
 
     if (!fileName.isEmpty()) {
-        // Ensure extension is .png if none provided
+        // Ensure extension if none provided (use .png as default)
         QFileInfo info(fileName);
         if (info.suffix().isEmpty() && info.baseName() == fileName) {
-            fileName += ".png";
+            // Add default extension based on filter or just png
+            if (filter.contains(info.suffix().toLower()) || filter.contains(info.suffix().toUpper())) {
+                // Keep suffix if user selected via filter type? Might be complex.
+                // Let's just default to png for simplicity.
+                fileName += defaultSuffix;
+            } else if (info.suffix().isEmpty()){
+                fileName += defaultSuffix;
+            }
         }
         ui->filePathLineEdit->setText(fileName);
     }
@@ -407,6 +425,7 @@ void MainWindow::on_exportButton_clicked()
     QString filePath = ui->filePathLineEdit->text();
     // Get selected width from the combo box (renamed conceptually)
     int lutWidth = ui->lutSizeComboBox->currentData().toInt();
+    int bitDepth = ui->exportBitDepthComboBox->currentData().toInt();
 
     // 2. Validate Parameters
     if (filePath.isEmpty()) {
@@ -418,64 +437,94 @@ void MainWindow::on_exportButton_clicked()
         return;
     }
 
-    // 3. Generate 1D Combined RGB LUT Image
-    QImage lutImage = generateCombinedRgbLut1D(lutWidth);
-    if (lutImage.isNull()) {
-        QMessageBox::critical(this, tr("Export Error"), tr("Failed to generate LUT image data."));
+    if (bitDepth != 8 && bitDepth != 16) {
+        QMessageBox::critical(this, tr("Export Error"), tr("Invalid bit depth selected."));
         return;
     }
 
-    // 4. Save Image (as PNG)
+    // 3. Generate LUT Image with selected bit depth
+    qDebug() << "Generating" << bitDepth << "-bit LUT image (width:" << lutWidth << ")";
+    QImage lutImage = generateCombinedRgbLut1D(lutWidth, bitDepth); // Pass bit depth
+    if (lutImage.isNull()) {
+        QMessageBox::critical(this, tr("Export Error"), tr("Failed to generate %1-bit LUT image data.").arg(bitDepth));
+        return;
+    }
+    qDebug() << "Generated image format:" << lutImage.format();
+
+
+    // 4. Save Image (as PNG - supports both 8/16 bit)
+    // PNG format hint is usually unnecessary, Qt saves based on QImage format
     if (lutImage.save(filePath, "PNG")) {
-        QMessageBox::information(this, tr("Export Successful"), tr("Combined RGB LUT image saved to:\n%1").arg(filePath));
+        QMessageBox::information(this, tr("Export Successful"), tr("%1-bit Combined RGB LUT image saved to:\n%2").arg(bitDepth).arg(filePath));
     } else {
-        QMessageBox::critical(this, tr("Export Error"), tr("Failed to save LUT image to:\n%1\nCheck permissions and path.").arg(filePath));
+        QMessageBox::critical(this, tr("Export Error"), tr("Failed to save %1-bit LUT image to:\n%2\nCheck permissions and path.").arg(bitDepth).arg(filePath));
     }
 }
 
 /**
  * @brief Helper function to generate a 1D Combined RGB LUT image.
- * Creates a width x 1 pixel image in RGB888 format.
+ * Creates a width x 1 pixel image in appropriate format based on bitDepth.
  * @param width - The desired width (resolution) of the LUT texture.
+ * @param bitDepth - The desired bits per channel (8 or 16).
  * @return The generated QImage, or a null QImage on error.
  */
-QImage MainWindow::generateCombinedRgbLut1D(int width)
+QImage MainWindow::generateCombinedRgbLut1D(int width, int bitDepth) // Add bitDepth param
 {
-    if (width < 1 || !ui->curveWidget) { // Allow width=1 case
-        qWarning() << "generateCombinedRgbLut1D: Invalid width or null curveWidget.";
-        return QImage(); // Return null image on error
-    }
-
-    // Create the output image: width x 1 pixel, RGB format
-    QImage image(width, 1, QImage::Format_RGB888);
-    if (image.isNull()) {
-        qWarning() << "Failed to create QImage for 1D RGB LUT generation (width:" << width << ")";
+    if (width < 1 || !ui->curveWidget || (bitDepth != 8 && bitDepth != 16)) {
+        qWarning() << "generateCombinedRgbLut1D: Invalid parameters.";
         return QImage();
     }
 
-    // --- Fill pixel data by sampling the curves at the same time 't' ---
+    // Choose the QImage format based on requested bit depth
+    // Format_RGBA64 uses 16 bits per channel (R, G, B, A)
+    QImage::Format format = (bitDepth == 16) ? QImage::Format_RGBA64 : QImage::Format_RGB888;
+
+    QImage image(width, 1, format);
+    if (image.isNull()) {
+        qWarning() << "Failed to create QImage for" << bitDepth << "-bit LUT (width:" << width << ")";
+        return QImage();
+    }
+    // Optional: Fill with black/opaque default
+    // image.fill(Qt::black); // For RGB888
+    // if (format == QImage::Format_RGBA64) image.fill(qRgba64(0,0,0,0xFFFF)); // For RGBA64
+
+    // --- Fill pixel data ---
     for (int i = 0; i < width; ++i) {
-        // Calculate normalized time t [0, 1] from the pixel index i
-        // Handle width=1 case to avoid division by zero.
         qreal t = (width == 1) ? 0.0 : static_cast<qreal>(i) / (width - 1.0);
 
-        // Sample each channel's curve at this specific time 't'
+        // Sample curves (returns 0.0-1.0)
         qreal yR_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::RED, t);
         qreal yG_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::GREEN, t);
         qreal yB_norm = ui->curveWidget->sampleCurveChannel(CurveWidget::ActiveChannel::BLUE, t);
 
-        // Clamp results to [0, 1] (should be handled by sampleCurveChannel, but double-check)
+        // Clamp results (should be redundant if sampleCurveChannel clamps, but safe)
         yR_norm = std::max(0.0, std::min(1.0, yR_norm));
         yG_norm = std::max(0.0, std::min(1.0, yG_norm));
         yB_norm = std::max(0.0, std::min(1.0, yB_norm));
 
-        // Convert normalized [0, 1] output to 8-bit [0, 255]
-        uchar outR_byte = static_cast<uchar>(std::round(yR_norm * 255.0));
-        uchar outG_byte = static_cast<uchar>(std::round(yG_norm * 255.0));
-        uchar outB_byte = static_cast<uchar>(std::round(yB_norm * 255.0));
+        // --- Use QColor and setPixelColor for simplicity and format independence ---
+        // QColor handles the conversion from float (0.0-1.0) to the image's underlying format (8 or 16 bit)
+        QColor pixelColor = QColor::fromRgbF(yR_norm, yG_norm, yB_norm, 1.0); // Use fromRgbF, alpha=1.0
 
-        // Set the pixel color at (i, 0) using the sampled RGB values
-        image.setPixel(i, 0, qRgb(outR_byte, outG_byte, outB_byte));
+        image.setPixelColor(i, 0, pixelColor); // Set pixel using QColor
+
+        /* // Alternative: Manual conversion (more complex, less recommended)
+        if (bitDepth == 16) {
+             quint16 r16 = static_cast<quint16>(std::round(yR_norm * 65535.0));
+             quint16 g16 = static_cast<quint16>(std::round(yG_norm * 65535.0));
+             quint16 b16 = static_cast<quint16>(std::round(yB_norm * 65535.0));
+             quint16 a16 = 0xFFFF; // Opaque alpha
+             // Need to write to image data buffer correctly for RGBA64 format
+             quint64* pixelPtr = reinterpret_cast<quint64*>(image.scanLine(0)) + i;
+             // Check documentation for correct packing order of qRgba64 or use QRgba64 helpers
+             *pixelPtr = qRgba64(r16, g16, b16, a16); // Assuming qRgba64 helper packs correctly
+        } else { // bitDepth == 8
+             uchar r8 = static_cast<uchar>(std::round(yR_norm * 255.0));
+             uchar g8 = static_cast<uchar>(std::round(yG_norm * 255.0));
+             uchar b8 = static_cast<uchar>(std::round(yB_norm * 255.0));
+             image.setPixel(i, 0, qRgb(r8, g8, b8));
+        }
+        */
     }
 
     return image;

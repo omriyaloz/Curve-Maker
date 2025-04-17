@@ -49,7 +49,7 @@ private:
     void applyTheme(bool dark);
     // Renamed and updated function to generate 3D LUT image
     QImage generateLutImage3D(int size);
-    QImage generateCombinedRgbLut1D(int width);
+    QImage generateCombinedRgbLut1D(int width, int bitDepth=8);
     QImage generateSingleChannelLut1D(CurveWidget::ActiveChannel channel, int width);
 
     // --- Member Variables ---
