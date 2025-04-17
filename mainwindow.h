@@ -44,6 +44,9 @@ private slots:
     void on_actionInactiveChannels_toggled(bool checked);
 
     void on_clampHandlesCheckbox_stateChanged(int state);
+
+    void onSaveCurvesActionTriggered();
+    void onLoadCurvesActionTriggered();
 private:
     // --- Helper Functions ---
     void applyTheme(bool dark);

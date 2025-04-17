@@ -24,6 +24,14 @@
 #include <QSettings>
 #include <QPainter> // Needed for drawing LUT preview gradient if desired
 
+
+#include <QFile>
+#include <QIODevice>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QMapIterator>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow) // Create the UI instance
@@ -32,6 +40,10 @@ MainWindow::MainWindow(QWidget *parent)
     , m_isPreviewRgbCombined(true)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
+
+    // *** Connect Save/Load Actions ***
+    connect(ui->actionSaveCurves, &QAction::triggered, this, &MainWindow::onSaveCurvesActionTriggered);
+    connect(ui->actionLoadCurves, &QAction::triggered, this, &MainWindow::onLoadCurvesActionTriggered);
 
     // --- Populate Export Bit Depth ComboBox ---
     // Add items: Display Text, UserData (stores the bit depth integer: 8 or 16)
@@ -702,3 +714,334 @@ void MainWindow::on_clampHandlesCheckbox_stateChanged(int state)
     }
 }
 
+
+// --- Save Logic ---
+
+/**
+ * @brief Slot connected to the "Save Curves..." action.
+ * Saves the current curve data and relevant UI settings to a JSON file.
+ */
+void MainWindow::onSaveCurvesActionTriggered() {
+    // Ensure curve widget exists
+    if (!ui->curveWidget) {
+        QMessageBox::critical(this, tr("Save Error"), tr("Curve widget is not available."));
+        return;
+    }
+
+    // Suggest starting directory (Documents)
+    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    // Suggest filename based on current settings (optional)
+    QString suggestedName = QString("curve_settings_%1w_%2bit.json")
+                                .arg(ui->lutSizeComboBox->currentData().toInt())
+                                .arg(ui->exportBitDepthComboBox->currentData().toInt());
+
+    // Open File Dialog
+    QString fileName = QFileDialog::getSaveFileName(this,
+                                                    tr("Save Curves and Settings"),
+                                                    defaultPath + "/" + suggestedName, // Combine path and suggestion
+                                                    tr("Curve JSON Files (*.json);;All Files (*)"));
+
+    // Check if user cancelled
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    // Ensure .json extension
+    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) {
+        fileName += ".json";
+    }
+
+    // --- Gather Data and Settings ---
+    QMap<CurveWidget::ActiveChannel, QVector<CurveWidget::CurveNode>> curveData = ui->curveWidget->getAllChannelNodes();
+    int lutWidth = ui->lutSizeComboBox->currentData().toInt();
+    int bitDepth = ui->exportBitDepthComboBox->currentData().toInt();
+    bool previewRgb = ui->actionPreviewRgb->isChecked();
+    bool drawInactive = ui->actionInactiveChannels->isChecked();
+    bool clampHandles = ui->clampHandlesCheckbox->isChecked();
+
+    // --- Build JSON Structure ---
+    QJsonObject rootObj;
+    rootObj["file_format_version"] = "1.1"; // Use a version string
+
+    // Create settings object
+    QJsonObject settingsObj;
+    settingsObj["lut_width"] = lutWidth;
+    settingsObj["export_bit_depth"] = bitDepth;
+    settingsObj["preview_rgb_combined"] = previewRgb;
+    settingsObj["draw_inactive"] = drawInactive;
+    settingsObj["clamp_handles"] = clampHandles;
+    rootObj["settings"] = settingsObj; // Add settings object to root
+
+    // Create channels object
+    QJsonObject channelsObj;
+    // Use C++11 range-based for loop with constBegin/constEnd for QMap iteration
+    for (auto it = curveData.constBegin(); it != curveData.constEnd(); ++it) {
+        CurveWidget::ActiveChannel channelKey = it.key();
+        const QVector<CurveWidget::CurveNode>& nodesVector = it.value();
+
+        // Convert channel enum key to string for JSON key
+        QString channelStringKey;
+        switch(channelKey) {
+        case CurveWidget::ActiveChannel::RED:   channelStringKey = "RED";   break;
+        case CurveWidget::ActiveChannel::GREEN: channelStringKey = "GREEN"; break;
+        case CurveWidget::ActiveChannel::BLUE:  channelStringKey = "BLUE";  break;
+        default:
+            qWarning() << "Skipping unknown channel key during save:" << static_cast<int>(channelKey);
+            continue; // Skip unknown channels if any
+        }
+
+        // Create JSON array for the nodes in this channel
+        QJsonArray nodesArray;
+        for (const CurveWidget::CurveNode& node : nodesVector) {
+            QJsonObject nodeObj;
+            // Store points as [x, y] arrays
+            nodeObj["main"] = QJsonArray({node.mainPoint.x(), node.mainPoint.y()});
+            nodeObj["in"]   = QJsonArray({node.handleIn.x(), node.handleIn.y()});
+            nodeObj["out"]  = QJsonArray({node.handleOut.x(), node.handleOut.y()});
+            // Store alignment as integer
+            nodeObj["align"] = static_cast<int>(node.alignment);
+            nodesArray.append(nodeObj); // Add the node object to the array
+        }
+        channelsObj[channelStringKey] = nodesArray; // Add channel array to channels object
+    }
+    rootObj["channels"] = channelsObj; // Add channels object to root
+
+    // --- Write JSON to File ---
+    QJsonDocument saveDoc(rootObj);
+    QFile saveFile(fileName);
+    if (!saveFile.open(QIODevice::WriteOnly | QIODevice::Text)) { // Open as text
+        qWarning() << "Couldn't open save file:" << fileName << saveFile.errorString();
+        QMessageBox::critical(this, tr("Save Error"), tr("Could not open file for writing:\n%1").arg(fileName));
+        return;
+    }
+
+    // Write indented JSON for readability
+    QByteArray jsonData = saveDoc.toJson(QJsonDocument::Indented);
+    if (saveFile.write(jsonData) == -1) {
+        qWarning() << "Failed to write to save file:" << fileName << saveFile.errorString();
+        QMessageBox::critical(this, tr("Save Error"), tr("Failed to write data to file:\n%1").arg(fileName));
+        saveFile.close(); // Close file even on error
+        return;
+    }
+
+    saveFile.close();
+    QMessageBox::information(this, tr("Save Successful"), tr("Curves and settings saved to:\n%1").arg(fileName));
+}
+
+
+// --- Load Logic ---
+
+/**
+ * @brief Slot connected to the "Load Curves..." action.
+ * Loads curve data and UI settings from a JSON file.
+ */
+void MainWindow::onLoadCurvesActionTriggered() {
+    // Ensure curve widget exists
+    if (!ui->curveWidget) {
+        QMessageBox::critical(this, tr("Load Error"), tr("Curve widget is not available."));
+        return;
+    }
+
+    // Suggest starting directory
+    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+
+    // Open File Dialog
+    QString fileName = QFileDialog::getOpenFileName(this,
+                                                    tr("Load Curves and Settings"),
+                                                    defaultPath,
+                                                    tr("Curve JSON Files (*.json);;All Files (*)"));
+
+    // Check if user cancelled
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    // --- Read File ---
+    QFile loadFile(fileName);
+    if (!loadFile.open(QIODevice::ReadOnly | QIODevice::Text)) { // Open as text
+        qWarning() << "Couldn't open load file:" << fileName << loadFile.errorString();
+        QMessageBox::critical(this, tr("Load Error"), tr("Could not open file for reading:\n%1").arg(fileName));
+        return;
+    }
+    QByteArray saveData = loadFile.readAll();
+    loadFile.close();
+
+    // --- Parse JSON ---
+    QJsonParseError parseError;
+    QJsonDocument loadDoc = QJsonDocument::fromJson(saveData, &parseError);
+
+    if (loadDoc.isNull()) { // Check for parsing errors
+        qWarning() << "Failed to parse JSON:" << parseError.errorString() << "at offset" << parseError.offset;
+        QMessageBox::critical(this, tr("Load Error"), tr("Failed to parse curve file:\n%1\nError: %2").arg(fileName).arg(parseError.errorString()));
+        return;
+    }
+    if (!loadDoc.isObject()) { // Root must be an object
+        QMessageBox::critical(this, tr("Load Error"), tr("Invalid curve file format (Root is not JSON object)."));
+        return;
+    }
+
+    QJsonObject rootObj = loadDoc.object();
+
+    // --- Validate and Extract Settings ---
+    // Provide default values for settings
+    int loadedLutWidth = 256;
+    int loadedBitDepth = 8;
+    bool loadedPreviewRgb = true;
+    bool loadedDrawInactive = false;
+    bool loadedClampHandles = true;
+    QString fileVersion = rootObj.value("file_format_version").toString(); // Get value as string, "" if missing/not string
+    if (fileVersion.isEmpty()) {
+        fileVersion = "unknown"; // Assign default if loading failed or key was missing
+    }
+    qDebug() << "Loading file version:" << fileVersion;
+
+    qDebug() << "Loading file version:" << fileVersion;
+    // Optional: Add checks/migration based on fileVersion here
+
+    if (rootObj.contains("settings") && rootObj["settings"].isObject()) {
+        QJsonObject settingsObj = rootObj["settings"].toObject();
+
+        // *** CORRECTED EXTRACTION: Use value(key).toType(default) ***
+        loadedLutWidth = settingsObj.value("lut_width").toInt(loadedLutWidth);
+        loadedBitDepth = settingsObj.value("export_bit_depth").toInt(loadedBitDepth);
+        loadedPreviewRgb = settingsObj.value("preview_rgb_combined").toBool(loadedPreviewRgb);
+        loadedDrawInactive = settingsObj.value("draw_inactive").toBool(loadedDrawInactive);
+        loadedClampHandles = settingsObj.value("clamp_handles").toBool(loadedClampHandles);
+
+        qDebug() << "Loaded Settings: Width" << loadedLutWidth << "Depth" << loadedBitDepth
+                 << "PreviewRGB" << loadedPreviewRgb << "DrawInactive" << loadedDrawInactive
+                 << "Clamp" << loadedClampHandles;
+    } else {
+        qWarning() << "Settings object missing in file, using defaults.";
+        // Using the defaults initialized above
+    }
+
+
+    // --- Validate and Extract Channel Data ---
+    if (!rootObj.contains("channels") || !rootObj["channels"].isObject()) {
+        QMessageBox::critical(this, tr("Load Error"), tr("Invalid curve file format (Missing 'channels' object)."));
+        return;
+    }
+    QJsonObject channelsObj = rootObj["channels"].toObject();
+    QMap<CurveWidget::ActiveChannel, QVector<CurveWidget::CurveNode>> loadedChannelNodes;
+    bool loadOk = true; // Flag to track parsing success
+
+    // Define expected channels and their string keys
+    QList<QPair<QString, CurveWidget::ActiveChannel>> expectedChannels = {
+        {"RED", CurveWidget::ActiveChannel::RED},
+        {"GREEN", CurveWidget::ActiveChannel::GREEN},
+        {"BLUE", CurveWidget::ActiveChannel::BLUE}
+    };
+
+    for (const auto& pair : expectedChannels) {
+        QString channelStringKey = pair.first;
+        CurveWidget::ActiveChannel channelKey = pair.second;
+
+        if (!channelsObj.contains(channelStringKey) || !channelsObj[channelStringKey].isArray()) {
+            qWarning() << "Channel data missing or invalid for:" << channelStringKey;
+            loadOk = false; // Require all channels for successful load
+            break;
+        }
+
+        QJsonArray nodesArray = channelsObj[channelStringKey].toArray();
+        QVector<CurveWidget::CurveNode> nodesVector;
+        nodesVector.reserve(nodesArray.size()); // Pre-allocate memory
+
+        for (const QJsonValue& nodeVal : nodesArray) {
+            if (!nodeVal.isObject()) { loadOk = false; qWarning("Node data not object"); break; }
+            QJsonObject nodeObj = nodeVal.toObject();
+
+            // --- Validate and extract points ---
+            bool pointsOk = true;
+            auto extractPoint = [&](const QString& key, QPointF& point) -> bool {
+                if (!nodeObj.contains(key) || !nodeObj[key].isArray()) return false;
+                QJsonArray arr = nodeObj[key].toArray();
+                if (arr.size() != 2 || !arr[0].isDouble() || !arr[1].isDouble()) return false;
+                point.setX(arr[0].toDouble());
+                point.setY(arr[1].toDouble());
+                return true;
+            };
+
+            QPointF pMain, pIn, pOut;
+            if (!extractPoint("main", pMain)) pointsOk = false;
+            if (!extractPoint("in", pIn)) pointsOk = false;
+            if (!extractPoint("out", pOut)) pointsOk = false;
+
+            if (!pointsOk) { loadOk = false; qWarning("Invalid point data"); break; }
+
+            // --- Validate and extract alignment ---
+            if (!nodeObj.contains("align")|| !nodeObj["align"].isDouble()) { // isDouble checks if it's a number
+                loadOk = false; qWarning("Invalid alignment data type"); break;
+            }
+            int alignInt = nodeObj["align"].toInt(-1); // Get int, default to -1 if conversion fails
+            if (alignInt < static_cast<int>(CurveWidget::HandleAlignment::Free) ||
+                alignInt > static_cast<int>(CurveWidget::HandleAlignment::Mirrored)) {
+                qWarning() << "Invalid alignment value in node:" << alignInt;
+                loadOk = false; break;
+            }
+            CurveWidget::HandleAlignment alignment = static_cast<CurveWidget::HandleAlignment>(alignInt);
+
+            // Create node and add to vector
+            CurveWidget::CurveNode node(pMain);
+            node.handleIn = pIn;
+            node.handleOut = pOut;
+            node.alignment = alignment;
+            nodesVector.append(node);
+        } // End loop through nodes in array
+
+        if (!loadOk) break; // Stop processing channels if error occurred
+
+        // Store loaded nodes for this channel
+        loadedChannelNodes.insert(channelKey, nodesVector);
+    } // End loop through expected channels
+
+    // --- Apply Loaded Data and Settings to Widget and UI (only if all parsing succeeded) ---
+    if (loadOk && loadedChannelNodes.size() == expectedChannels.size()) {
+        qDebug() << "JSON parsing successful, applying state.";
+
+        // 1. Apply curve data to the widget (this clears undo stack)
+        ui->curveWidget->setAllChannelNodes(loadedChannelNodes);
+
+        // 2. Apply loaded settings to UI controls
+        //    (This triggers slots which update underlying states)
+
+        // Find and set LUT Width ComboBox value
+        bool foundWidth = false;
+        for(int i=0; i<ui->lutSizeComboBox->count(); ++i){
+            if(ui->lutSizeComboBox->itemData(i).toInt() == loadedLutWidth){
+                ui->lutSizeComboBox->setCurrentIndex(i);
+                foundWidth = true; break;
+            }
+        }
+        if (!foundWidth) {
+            qWarning() << "Loaded LUT Width" << loadedLutWidth << "not found in ComboBox list.";
+            // Optionally add it? Or just set text as fallback?
+            ui->lutSizeComboBox->setCurrentText(QString::number(loadedLutWidth));
+        }
+
+        // Find and set Export Bit Depth ComboBox value
+        bool foundDepth = false;
+        for(int i=0; i<ui->exportBitDepthComboBox->count(); ++i){
+            if(ui->exportBitDepthComboBox->itemData(i).toInt() == loadedBitDepth){
+                ui->exportBitDepthComboBox->setCurrentIndex(i);
+                foundDepth = true; break;
+            }
+        }
+        if (!foundDepth) {
+            qWarning() << "Loaded Export Bit Depth" << loadedBitDepth << "not found in ComboBox list.";
+            ui->exportBitDepthComboBox->setCurrentIndex(0); // Default to 8-bit
+        }
+
+        // Set CheckBox / Action states
+        ui->clampHandlesCheckbox->setChecked(loadedClampHandles);
+        ui->actionInactiveChannels->setChecked(loadedDrawInactive);
+        ui->actionPreviewRgb->setChecked(loadedPreviewRgb);
+        // Note: Setting checkable actions/checkboxes will trigger their respective slots.
+
+        QMessageBox::information(this, tr("Load Successful"), tr("Curves and settings loaded from:\n%1").arg(fileName));
+
+    } else {
+        // Parsing failed or incomplete data
+        QMessageBox::critical(this, tr("Load Error"), tr("Failed to load curves/settings due to file format error or missing data in:\n%1").arg(fileName));
+    }
+}

@@ -97,6 +97,7 @@ public slots:
     void setNodeAlignment(int nodeIndex, HandleAlignment mode); // Operates on active channel (if single selection)
     void setDrawInactiveChannels(bool draw); // Toggle background curve drawing
     void setHandlesClamping(bool clamp);
+    void setAllChannelNodes(const QMap<ActiveChannel, QVector<CurveNode>>& allNodes);
 
 signals:
     // --- Signals ---

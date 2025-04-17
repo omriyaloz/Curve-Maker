@@ -524,6 +524,8 @@
     <property name="title">
      <string>File</string>
     </property>
+    <addaction name="actionSaveCurves"/>
+    <addaction name="actionLoadCurves"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -574,6 +576,16 @@
    </property>
    <property name="text">
     <string>Preview RGB Combined</string>
+   </property>
+  </action>
+  <action name="actionSaveCurves">
+   <property name="text">
+    <string>Save Curve...</string>
+   </property>
+  </action>
+  <action name="actionLoadCurves">
+   <property name="text">
+    <string>Load Curve...</string>
    </property>
   </action>
  </widget>

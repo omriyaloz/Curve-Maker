@@ -1232,3 +1232,37 @@ void CurveWidget::clampHandlePosition(QPointF& handlePos) {
     }
     // If m_clampHandles is false, position remains unchanged
 }
+
+/**
+ * @brief Replaces the entire curve state with the provided data.
+ * Clears selection, interaction states, and the undo stack.
+ * @param allNodes - The map containing the complete node data for all channels.
+ */
+void CurveWidget::setAllChannelNodes(const QMap<ActiveChannel, QVector<CurveNode>>& allNodes) {
+    // Basic validation (optional): Check if map contains expected channels? Check node validity?
+    // For simplicity, we assume the loaded data is valid for now.
+
+    m_channelNodes = allNodes; // Replace internal data
+
+    // Reset interaction and selection states
+    m_selectedNodeIndices.clear();
+    m_currentDrag = {SelectedPart::NONE, -1};
+    m_dragging = false;
+    m_isBoxSelecting = false;
+    m_boxSelectionRect = QRect();
+    m_stateBeforeAction.clear(); // Clear any pending undo state
+
+    // Clear the undo stack as the history is no longer valid
+    m_undoStack.clear();
+    qDebug() << "Curve data loaded, undo stack cleared.";
+
+    // Ensure active channel is valid (maybe default to RED if not present?)
+    if (!m_channelNodes.contains(m_activeChannel)) {
+        m_activeChannel = ActiveChannel::RED;
+        // TODO: Update MainWindow's channel radio buttons if you add this fallback
+    }
+
+    update(); // Redraw with the new curves
+    emit curveChanged();     // Signal data changed
+    emit selectionChanged(); // Signal selection cleared
+}
