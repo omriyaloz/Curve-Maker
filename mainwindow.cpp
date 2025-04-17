@@ -41,6 +41,21 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this); // Set up the UI defined in the .ui file
 
+
+
+
+    // *** Get current flags ***
+    Qt::WindowFlags flags = this->windowFlags();
+
+    // *** Remove the Maximize button hint ***
+    flags &= ~Qt::WindowMaximizeButtonHint;
+
+    // *** Apply the modified flags ***
+    this->setWindowFlags(flags);
+
+    flags |= Qt::WindowContextHelpButtonHint;
+    this->setWindowFlags(flags);
+
     // *** Connect Save/Load Actions ***
     connect(ui->actionSaveCurves, &QAction::triggered, this, &MainWindow::onSaveCurvesActionTriggered);
     connect(ui->actionLoadCurves, &QAction::triggered, this, &MainWindow::onLoadCurvesActionTriggered);
