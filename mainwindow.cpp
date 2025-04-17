@@ -85,12 +85,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 
     // --- LUT Width ComboBox Setup ---
-    QList<int> lutWidths = {64, 128, 256, 512, 1024}; // Widths for 1D LUT
+    QList<int> lutWidths = {16, 32, 64, 128, 256, 512}; // Widths for 1D LUT
     for (int width : lutWidths) {
         // Display text is the number, UserData holds the integer value
         ui->lutSizeComboBox->addItem(QString::number(width), QVariant(width));
     }
-    ui->lutSizeComboBox->setCurrentText("256"); // Default export width
+    ui->lutSizeComboBox->setCurrentText("128"); // Default export width
 
 
     // --- Default Export Path Setup ---
