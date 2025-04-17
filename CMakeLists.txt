@@ -20,6 +20,7 @@ qt_add_executable(CurveMaker
     themes.qrc
     resources.qrc
     app_resource.rc
+    animationpreviewwidget.h animationpreviewwidget.cpp
 )
 
 target_include_directories(CurveMaker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -42,7 +42,22 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this); // Set up the UI defined in the .ui file
 
 
+    // *** Link CurveWidget to Animation Preview ***
+    if (ui->curveWidget && ui->animationPreviewWidget) { // Check both exist
+        ui->animationPreviewWidget->setCurveWidget(ui->curveWidget);
+    }
 
+    // *** Connect signals to ensure preview updates ***
+    if (ui->curveWidget && ui->animationPreviewWidget) {
+        // When curve shape changes, trigger animation widget update (repaint)
+        connect(ui->curveWidget, &CurveWidget::curveChanged,
+                ui->animationPreviewWidget, QOverload<>::of(&QWidget::update));
+
+        // When active editing channel changes, trigger animation widget update
+        // OPTION 1: Connect button group signal (if channel change only happens via buttons)
+        connect(m_channelGroup, &QButtonGroup::buttonClicked, // Use the button group pointer
+                ui->animationPreviewWidget, QOverload<>::of(&QWidget::update));
+    }
 
     // *** Get current flags ***
     Qt::WindowFlags flags = this->windowFlags();
