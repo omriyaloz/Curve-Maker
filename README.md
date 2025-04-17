@@ -94,7 +94,6 @@ https://github.com/omriyaloz/Curve-Maker/releases/tag/v1.0.0
 4.  **Export/Generate:**
     * Configure LUT Width and Export Bit Depth in the "LUT" tab.
     * Click "Export LUT" to save the 1D Combined RGB texture.
-    * Go to the "HLSL" tab and click "Generate HLSL" to get the code for the standard easing function that best matches the active curve.
 5.  **Save/Load:** Use the File menu to save your current curves and settings to a `.json` file or load a previous project.
 
 ## 📄 Save File Format
