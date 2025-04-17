@@ -1,14 +1,14 @@
 #ifndef SETCURVESTATECOMMAND_H
 #define SETCURVESTATECOMMAND_H
 
+// Qt Includes
 #include <QUndoCommand>
 #include <QMap>
 #include <QVector>
-#include "curvewidget.h" // Include CurveWidget header for types
+#include <QString> // Needed for constructor text parameter
 
-// Forward declaration not sufficient here as we need the nested types like
-// CurveWidget::ActiveChannel and CurveWidget::CurveNode for the QMap definition.
-// class CurveWidget;
+// Project Includes
+#include "curvewidget.h" // Required for CurveWidget::ActiveChannel, CurveWidget::CurveNode
 
 /**
  * @brief An undo command for storing and restoring the complete state
@@ -17,7 +17,6 @@
 class SetCurveStateCommand : public QUndoCommand
 {
 public:
-    // Define the specific type for the state map for clarity
     using CurveStateMap = QMap<CurveWidget::ActiveChannel, QVector<CurveWidget::CurveNode>>;
 
     /**
@@ -34,22 +33,13 @@ public:
                          const QString &text = "Set Curve State",
                          QUndoCommand *parent = nullptr);
 
-    // --- QUndoCommand Overrides ---
     void undo() override;
     void redo() override;
 
-    // Optional: Implement mergeWith() if you want consecutive moves
-    // of the same point to merge into a single undo step.
-    // bool mergeWith(const QUndoCommand *command) override;
-    // int id() const override; // Required for mergeWith
-
 private:
-    CurveWidget* m_curveWidget; // Pointer to the widget to modify
-    CurveStateMap m_oldState;   // Copy of the state *before* the command
-    CurveStateMap m_newState;   // Copy of the state *after* the command
-
-    // Optional: Store info needed for merging
-    // CurveWidget::SelectionInfo m_selectionInfo; // If merging depends on selected part
+    CurveWidget* m_curveWidget;
+    CurveStateMap m_oldState;
+    CurveStateMap m_newState;
 };
 
-#endif // SETCURVESTATECOMMAND_H
+#endif
