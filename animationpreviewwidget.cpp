@@ -1,15 +1,15 @@
 #include "animationpreviewwidget.h"
-#include "curvewidget.h" // Requires full definition for methods/enums
+#include "curvewidget.h" 
 
 // Qt Includes
 #include <QDebug>
 #include <QPaintEvent>
 #include <QPainter>
-#include <QPen>      // Needed for QPen usage in paintEvent
-#include <QPointF>   // Needed for QPointF usage in paintEvent
+#include <QPen>      
+#include <QPointF>   
 #include <QtMath>
 
-// Standard Library Includes (if any were needed, like <algorithm>)
+
 
 
 AnimationPreviewWidget::AnimationPreviewWidget(QWidget *parent)
