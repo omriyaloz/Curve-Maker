@@ -66,7 +66,7 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/omriyaloz/Curve-Maker
+    git clone https://github.com/omriyaloz/Curve-Maker.git
     cd CurveMaker
     ```
 2.  **Configure using CMake:** Create a build directory.
