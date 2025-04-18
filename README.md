@@ -1,9 +1,21 @@
 # CurveMaker 📈
 
-A versatile curve editor built with C++ and Qt 6, designed for creating multi-channel easing curves and exporting them as 1D LUT textures, primarily targeting game development and animation workflows.
+A versatile curve editor built designed for creating multi-channel easing curves and exporting them as 1D LUTs (Lookup Textures), primarily targeting game development and shader animation workflows.
 
 ![Screenshot 2025-04-17 181323](https://github.com/user-attachments/assets/1d5af709-f87e-4d0c-9e5f-f32efece3811)
 
+
+
+
+## :question: What? Why?
+
+Shader-based vertex animations are highly performant for effects like swaying trees, vegetation, destruction, and more. But standard sine waves limit artistic control if you need stylized movement. Animators prefer intuitive easing curves, which aren't native to shaders. [While mathematical easing functions are possible](https://docs.google.com/document/d/1x9gch_zQ6Farvp-Q6R4_FhWrpbcybUW2fCfVUCdPZvs/edit?usp=sharing), they can be complex and potentially impact GPU performance.
+
+Curve Maker solves this. It provides an easy method to encode your custom animation curves into Look-Up Tables (LUTs). You can then sample these LUTs efficiently in your shader, using Time to drive animations. This approach is very performant, mainly costing the memory footprint of the LUT and the texture fetch operation.
+
+## ▶️Showcase 
+[![IMAGE ALT TEXT](https://github.com/user-attachments/assets/d9098f51-96b0-4df3-a8fb-ca38fa8b8d25)
+](https://youtu.be/ombsLh9y2nA "Showcase")
 
 ## ✨ Features
 
@@ -78,7 +90,7 @@ A versatile curve editor built with C++ and Qt 6, designed for creating multi-ch
 https://github.com/omriyaloz/Curve-Maker/releases/tag/v1.0.0
 
 * **Windows:** Download the `.zip` file. Extract it. Run `CurveMaker.exe`. You *might* need to install the corresponding Microsoft VC++ Redistributable package if it was built with MSVC (check release notes).
-* **macOS:** N/A
+
 
 ## 📖 Usage
 
@@ -95,15 +107,6 @@ https://github.com/omriyaloz/Curve-Maker/releases/tag/v1.0.0
     * Configure LUT Width and Export Bit Depth in the "LUT" tab.
     * Click "Export LUT" to save the 1D Combined RGB texture.
 5.  **Save/Load:** Use the File menu to save your current curves and settings to a `.json` file or load a previous project.
-
-## 📄 Save File Format
-
-The project is saved as a JSON file (`.json`) containing:
-
-* `file_format_version`: Version string.
-* `settings`: An object containing UI settings like `lut_width`, `export_bit_depth`, `preview_rgb_combined`, `draw_inactive`, `clamp_handles`.
-* `channels`: An object containing keys "RED", "GREEN", "BLUE", each mapping to an array of node objects.
-    * Each node object contains `main`, `in`, `out` (each a `[x, y]` array) and `align` (integer 0=Free, 1=Aligned, 2=Mirrored).
 
 
 ## 📜 License
