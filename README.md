@@ -66,7 +66,7 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
 
 1.  **Clone the repository:**
     ```bash
-    git clone [Your Repository URL]
+    git clone https://github.com/omriyaloz/Curve-Maker
     cd CurveMaker
     ```
 2.  **Configure using CMake:** Create a build directory.
@@ -87,7 +87,7 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
 
 ### Running a Pre-built Version
 
-https://github.com/omriyaloz/Curve-Maker/releases/tag/v1.0.0
+[**Release v1.0**](https://github.com/omriyaloz/Curve-Maker/releases/tag/v1.0.0)
 
 * **Windows:** Download the `.zip` file. Extract it. Run `CurveMaker.exe`. You *might* need to install the corresponding Microsoft VC++ Redistributable package if it was built with MSVC (check release notes).
 
