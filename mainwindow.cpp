@@ -1,5 +1,5 @@
 #include "mainwindow.h"
-#include "ui_mainwindow.h" // Must be included before usage of ui member
+#include "ui_mainwindow.h" 
 #include "curvewidget.h"
 
 #include <QAbstractButton>
@@ -32,8 +32,8 @@
 #include <QUndoStack>
 #include <QVariant>
 
-#include <algorithm> // for std::max/min
-#include <cmath>     // for std::round
+#include <algorithm> 
+#include <cmath>     
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -52,7 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
         connect(ui->curveWidget, &CurveWidget::curveChanged,
                 ui->animationPreviewWidget, QOverload<>::of(&QWidget::update));
 
-        if (m_channelGroup) { // Connect only if group was successfully created
+        if (m_channelGroup) { 
             connect(m_channelGroup, &QButtonGroup::buttonClicked,
                     ui->animationPreviewWidget, QOverload<>::of(&QWidget::update));
         }
@@ -60,7 +60,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     Qt::WindowFlags flags = this->windowFlags();
     flags &= ~Qt::WindowMaximizeButtonHint;
-    flags |= Qt::WindowContextHelpButtonHint; // Keep this if intended
+    flags |= Qt::WindowContextHelpButtonHint; 
     this->setWindowFlags(flags);
 
     connect(ui->actionSaveCurves, &QAction::triggered, this, &MainWindow::onSaveCurvesActionTriggered);
