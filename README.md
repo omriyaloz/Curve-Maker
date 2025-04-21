@@ -17,7 +17,7 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
 [![IMAGE ALT TEXT](https://github.com/user-attachments/assets/d9098f51-96b0-4df3-a8fb-ca38fa8b8d25)
 ](https://youtu.be/ombsLh9y2nA "Showcase")
 
-## ✨ Features
+##  Features
 
 * **Multi-Channel Bézier Curve Editing:**
     * Independently edit curves for Red, Green, and Blue channels.
@@ -45,13 +45,13 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
     * Switch between Light and Dark themes.
     * Configurable LUT width and export bit depth (8/16 bit per channel).
 
-## 🛠️ Technology Stack
+##  Technology Stack
 
 * C++ (C++17 or later recommended)
 * Qt Framework (Developed with Qt 6.5+, likely compatible with recent Qt 6 versions)
 * CMake (Build System)
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -92,7 +92,7 @@ Curve Maker solves this. It provides an easy method to encode your custom animat
 * **Windows:** Download the `.zip` file. Extract it. Run `CurveMaker.exe`. You *might* need to install the corresponding Microsoft VC++ Redistributable package if it was built with MSVC (check release notes).
 
 
-## 📖 Usage
+##  Usage
 
 1.  **Select Channel:** Use the R, G, B radio buttons to choose the curve channel you want to edit or preview (in single-channel mode).
 2.  **Edit Curve:**
