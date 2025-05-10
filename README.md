@@ -1,6 +1,6 @@
 # CurveMaker 📈
 
-A versatile curve editor built designed for creating multi-channel easing curves and exporting them as 1D LUTs (Lookup Textures), primarily targeting game development and shader animation workflows.
+A versatile curve editor designed for creating multi-channel easing curves and exporting them as 1D LUTs (Lookup Textures), primarily targeting game development and shader animation workflows.
 
 ![Screenshot 2025-04-17 181323](https://github.com/user-attachments/assets/1d5af709-f87e-4d0c-9e5f-f32efece3811)
 
